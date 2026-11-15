@@ -1,5 +1,18 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@supabase/supabase-js";
+
+function getDbClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    "placeholder-key";
+
+  return createClient(url, key, {
+    auth: { persistSession: false },
+  });
+}
 
 export async function POST(request: Request) {
   try {
@@ -22,23 +35,32 @@ export async function POST(request: Request) {
     }
 
     const cleanTeamName = teamName.trim();
+    const db = getDbClient();
 
     // 1. Check team in database
     try {
-      const { data: team, error } = await supabase
+      const { data: team, error: teamErr } = await db
         .from("teams")
         .select("id, name, locked, created_at")
         .ilike("name", cleanTeamName)
         .maybeSingle();
 
+      if (teamErr) {
+        console.warn("[Login API] Error querying team:", teamErr);
+      }
+
       if (team) {
         // Fetch team members
-        const { data: members } = await supabase
+        const { data: members, error: memErr } = await db
           .from("members")
           .select("id, name, email, college")
           .eq("team_id", team.id);
 
-        // Verify captain's USN matches (email format is usn@mite.ac.in)
+        if (memErr) {
+          console.warn("[Login API] Error querying members:", memErr);
+        }
+
+        // Verify captain's USN matches (email format is usn@mite.ac.in or in college field)
         const expectedEmail = `${captainUsn.toLowerCase()}@mite.ac.in`;
         const matchedMember = members?.find(
           (m) =>
@@ -69,7 +91,7 @@ export async function POST(request: Request) {
       console.warn("[Login API] DB check fallback:", dbErr);
     }
 
-    // 2. Demo/Contest fallback if team was registered locally or offline
+    // 2. Demo/Contest fallback if team was registered offline or with mock data
     if (cleanTeamName.length >= 2) {
       return NextResponse.json({
         success: true,

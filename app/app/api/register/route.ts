@@ -121,7 +121,7 @@ export async function POST(request: Request) {
       console.error("[Register API] Error inserting into teams:", teamError);
       return NextResponse.json(
         {
-          error: `Database insert failed: ${teamError.message}. (Hint: Run the RLS INSERT policy in Supabase SQL Editor).`,
+          error: `Database insert failed: ${teamError.message}.`,
         },
         { status: 500 }
       );
@@ -130,15 +130,25 @@ export async function POST(request: Request) {
     const teamId = teamData.id;
 
     // 5. Insert Captain into `members` table
-    const { error: captainError } = await db.from("members").insert({
-      team_id: teamId,
-      name: captain.name.trim(),
-      email: captainEmail,
-      college: `MITE - Sem ${captainSemester} (Ph: ${captainPhone})`,
-    });
+    const { data: captainData, error: captainError } = await db
+      .from("members")
+      .insert({
+        team_id: teamId,
+        name: captain.name.trim(),
+        email: captainEmail,
+        college: `MITE - Sem ${captainSemester} (Ph: ${captainPhone})`,
+      })
+      .select("id")
+      .single();
 
     if (captainError) {
       console.error("[Register API] Error inserting captain:", captainError);
+    } else if (captainData?.id) {
+      // Link captain_id in teams table
+      await db
+        .from("teams")
+        .update({ captain_id: captainData.id })
+        .eq("id", teamId);
     }
 
     // 6. Insert Teammates into `members` table
@@ -154,11 +164,23 @@ export async function POST(request: Request) {
       }
     }
 
-    // 7. Initialize Wallets with 100 coins for both rounds
-    await db.from("wallets").insert([
-      { team_id: teamId, round: 1, balance: 100 },
-      { team_id: teamId, round: 2, balance: 100 },
-    ]);
+    // 7. Initialize Wallet with 100 points
+    try {
+      const { error: walletError } = await db.from("wallets").insert({
+        team_id: teamId,
+        balance: 100,
+      });
+
+      if (walletError) {
+        // Fallback for two-round schema if table requires round
+        await db.from("wallets").insert([
+          { team_id: teamId, round: 1, balance: 100 },
+          { team_id: teamId, round: 2, balance: 100 },
+        ]);
+      }
+    } catch (wErr) {
+      console.warn("[Register API] Wallet insert fallback:", wErr);
+    }
 
     return NextResponse.json({
       success: true,
