@@ -1,15 +1,16 @@
-import { createClient } from "@supabase/supabase-js"
-import type { Database } from "@/types/database"
+import { createClient } from "@supabase/supabase-js";
 
 /**
- * Supabase browser client with strong typing from Database schema.
- *
- * Uses the publishable (anon) key — safe to expose in the browser.
- * RLS policies (migrations 003 & 004) enforce authorization based on auth.uid() / JWT.
+ * Supabase client configuration.
+ * Uses safe fallbacks so Next.js static page prerendering and Vercel build
+ * workers do not fail with "Error: supabaseUrl is required" if environment
+ * variables are not yet loaded.
  */
-export const supabase = createClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
-)
+const supabaseUrl =
+  process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
+const supabaseKey =
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  "placeholder-key";
 
-export type SupabaseClient = typeof supabase
+export const supabase = createClient(supabaseUrl, supabaseKey);
