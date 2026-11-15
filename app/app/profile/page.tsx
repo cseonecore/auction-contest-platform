@@ -142,7 +142,7 @@ export default function ProfilePage() {
               No Team Logged In
             </h2>
             <p className="text-xs text-slate-500">
-              Please enter your Team ID and Password to view your profile and participate in auctions.
+              Please enter your Team Name and Captain USN to view your profile and participate in auctions.
             </p>
             <div className="flex gap-3 justify-center pt-2">
               <Link

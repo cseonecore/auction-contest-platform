@@ -23,7 +23,7 @@ export const FigmaLoginForm: React.FC = () => {
     }
 
     if (!captainUsn.trim()) {
-      setError("Please enter the Captain Usn.");
+      setError("Please enter the Captain USN.");
       return;
     }
 
@@ -43,7 +43,7 @@ export const FigmaLoginForm: React.FC = () => {
 
       if (!res.ok) {
         throw new Error(
-          data.error || "Invalid Team Name or Captain Usn. Please check your credentials."
+          data.error || "Invalid Team Name or Captain USN. Please check your credentials."
         );
       }
 
@@ -72,7 +72,7 @@ export const FigmaLoginForm: React.FC = () => {
         Log in To Your Profile
       </h1>
       <p className="text-xs sm:text-sm text-slate-500 font-normal mt-2">
-        Enter your Team ID and Captain Usn and view your profile
+        Enter your Team ID and Captain USN and view your profile
       </p>
 
       {/* Error Message */}
@@ -99,12 +99,12 @@ export const FigmaLoginForm: React.FC = () => {
           />
         </div>
 
-        {/* Captain Usn Input */}
+        {/* Captain USN Input */}
         <div className="relative">
           <input
             type={showUsn ? "text" : "password"}
             required
-            placeholder="Captain Usn"
+            placeholder="Captain USN"
             value={captainUsn}
             onChange={(e) => {
               setCaptainUsn(e.target.value.toUpperCase());
@@ -116,7 +116,7 @@ export const FigmaLoginForm: React.FC = () => {
             type="button"
             onClick={() => setShowUsn((prev) => !prev)}
             className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1"
-            aria-label={showUsn ? "Hide Captain Usn" : "Show Captain Usn"}
+            aria-label={showUsn ? "Hide Captain USN" : "Show Captain USN"}
           >
             {showUsn ? (
               <EyeOff className="w-4 h-4" />
