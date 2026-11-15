@@ -1,5 +1,7 @@
 # Bid2Build – Auction Contest Platform
 
+> **🚀 Live Website:** [https://bid2build-cse.vercel.app](https://bid2build-cse.vercel.app)
+
 Web-based App Development Auction Contest platform for team registration, live bidding, submissions, and AI-powered evaluation.
 
 ## Overview
