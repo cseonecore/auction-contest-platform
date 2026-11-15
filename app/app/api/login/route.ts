@@ -16,7 +16,7 @@ export async function POST(request: Request) {
 
     if (!captainUsn) {
       return NextResponse.json(
-        { error: "Captain USN is required." },
+        { error: "Captain Usn is required." },
         { status: 400 }
       );
     }
@@ -60,7 +60,7 @@ export async function POST(request: Request) {
           });
         } else {
           return NextResponse.json(
-            { error: "The provided Captain USN does not match this team." },
+            { error: "The provided Captain Usn does not match this team." },
             { status: 401 }
           );
         }
@@ -92,7 +92,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json(
-      { error: "Invalid Team Name or Captain USN. Please check your credentials." },
+      { error: "Invalid Team Name or Captain Usn. Please check your credentials." },
       { status: 401 }
     );
   } catch (err: unknown) {
