@@ -1,18 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-function getDbClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    "placeholder-key";
-
-  return createClient(url, key, {
-    auth: { persistSession: false },
-  });
-}
+import { getDbClient } from "@/lib/supabaseServer";
 
 export async function POST(request: Request) {
   try {
@@ -37,12 +24,23 @@ export async function POST(request: Request) {
     const cleanTeamName = teamName.trim();
     const db = getDbClient();
 
-    // 1. Strict Query: Find Team in Supabase
-    const { data: team, error: teamErr } = await db
+    // 1. Strict Query: Find Team in Supabase (case-insensitive)
+    let { data: team, error: teamErr } = await db
       .from("teams")
       .select("id, name, captain_id, locked, created_at")
       .ilike("name", cleanTeamName)
       .maybeSingle();
+
+    // If not found, try without spaces in case user typed "Code Ninjas" for "CodeNinjas"
+    if (!team) {
+      const compactName = cleanTeamName.replace(/\s+/g, "");
+      const { data: altTeam } = await db
+        .from("teams")
+        .select("id, name, captain_id, locked, created_at")
+        .ilike("name", compactName)
+        .maybeSingle();
+      if (altTeam) team = altTeam;
+    }
 
     if (teamErr) {
       console.error("[Login API] Supabase query error:", teamErr);
@@ -91,11 +89,12 @@ export async function POST(request: Request) {
 
     // 4. Strictly match Captain USN against the Captain's registered USN/email
     const expectedEmail = `${captainUsn.toLowerCase()}@mite.ac.in`;
+    const cleanCaptainUsn = captainUsn.replace(/[\s-]/g, "");
     const isCaptainMatch =
       captain?.email &&
       (captain.email.toLowerCase() === expectedEmail ||
-        captain.email.toUpperCase().includes(captainUsn) ||
-        (captain.college && captain.college.toUpperCase().includes(captainUsn)));
+        captain.email.toUpperCase().includes(cleanCaptainUsn) ||
+        (captain.college && captain.college.toUpperCase().includes(cleanCaptainUsn)));
 
     if (!isCaptainMatch) {
       return NextResponse.json(
