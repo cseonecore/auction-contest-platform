@@ -300,27 +300,30 @@ export interface Database {
           team_id: string
           slot_id: string
           repository_url: string | null
+          live_url: string | null
           submitted_by: string | null
           submitted_at: string
-          status: "submitted" | "evaluating" | "evaluated" | "review"
+          status: "queued" | "running" | "scored" | "failed" | "submitted" | "evaluating" | "evaluated" | "review"
         }
         Insert: {
           id?: string
           team_id: string
           slot_id: string
           repository_url?: string | null
+          live_url?: string | null
           submitted_by?: string | null
           submitted_at?: string
-          status?: "submitted" | "evaluating" | "evaluated" | "review"
+          status?: "queued" | "running" | "scored" | "failed" | "submitted" | "evaluating" | "evaluated" | "review"
         }
         Update: {
           id?: string
           team_id?: string
           slot_id?: string
           repository_url?: string | null
+          live_url?: string | null
           submitted_by?: string | null
           submitted_at?: string
-          status?: "submitted" | "evaluating" | "evaluated" | "review"
+          status?: "queued" | "running" | "scored" | "failed" | "submitted" | "evaluating" | "evaluated" | "review"
         }
         Relationships: []
       }
@@ -457,6 +460,27 @@ export interface Database {
       is_admin: {
         Args: Record<PropertyKey, never>
         Returns: boolean
+      }
+      submit_project: {
+        Args: {
+          p_slot_id: string
+          p_repository_url: string
+          p_live_url: string
+        }
+        Returns: Json
+      }
+      team_deadline: {
+        Args: {
+          p_team_id: string
+        }
+        Returns: string
+      }
+      record_solve: {
+        Args: {
+          p_team_id: string
+          p_problem_id: string
+        }
+        Returns: Json
       }
     }
 
