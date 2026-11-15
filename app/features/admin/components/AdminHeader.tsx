@@ -6,17 +6,18 @@ interface AdminHeaderProps {
   userEmail?: string | null;
   role?: string | null;
   onSignOut?: () => void;
+  currentPage?: string;
 }
 
-export function AdminHeader({ userEmail, role, onSignOut }: AdminHeaderProps) {
+export function AdminHeader({ userEmail, role, onSignOut, currentPage = 'Settings' }: AdminHeaderProps) {
   return (
     <header className="border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-6 py-4">
       <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <span className="font-bold text-lg text-zinc-900 dark:text-zinc-50 tracking-tight">
+            <Link href="/admin" className="font-bold text-lg text-zinc-900 dark:text-zinc-50 tracking-tight hover:opacity-85 transition-opacity">
               Bid2Build
-            </span>
+            </Link>
             <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 font-semibold">
               Admin Portal
             </span>
@@ -26,7 +27,7 @@ export function AdminHeader({ userEmail, role, onSignOut }: AdminHeaderProps) {
               Admin
             </Link>
             <span>/</span>
-            <span className="text-zinc-900 dark:text-zinc-100 font-medium">Settings</span>
+            <span className="text-zinc-900 dark:text-zinc-100 font-medium">{currentPage}</span>
           </nav>
         </div>
 

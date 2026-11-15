@@ -13,6 +13,7 @@ export default function AdminDashboardPage() {
         userEmail={user?.email}
         role={role}
         onSignOut={user ? signOut : undefined}
+        currentPage="Dashboard"
       />
 
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-8">
@@ -47,23 +48,26 @@ export default function AdminDashboardPage() {
             </p>
           </Link>
 
-          {/* Registration Management - UPCOMING */}
-          <div className="p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white/60 dark:bg-zinc-900/40 opacity-75">
+          {/* Registration Management - ACTIVE */}
+          <Link
+            href="/admin/registration"
+            className="p-6 rounded-xl border-2 border-blue-600 bg-white dark:bg-zinc-900 shadow-sm hover:shadow-md transition-shadow group"
+          >
             <div className="flex items-center justify-between mb-4">
-              <div className="w-10 h-10 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300 flex items-center justify-center font-bold">
                 👥
               </div>
-              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
-                Next Phase
+              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                Active
               </span>
             </div>
-            <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
+            <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 group-hover:text-blue-600 transition-colors">
               Registration &amp; Teams
             </h2>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-              View participant teams, inspect rosters, handle member change requests, and lock registration.
+              View registered teams, inspect member rosters, and monitor contest capacity limits.
             </p>
-          </div>
+          </Link>
 
           {/* Auction Control - UPCOMING */}
           <div className="p-6 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white/60 dark:bg-zinc-900/40 opacity-75">
