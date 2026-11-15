@@ -13,16 +13,24 @@ export function RegistrationStats({ stats }: RegistrationStatsProps) {
       <div className="p-5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs">
         <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400 text-xs font-medium">
           <span>Registered Teams</span>
-          <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
-            Capacity
-          </span>
+          {stats.isRegistrationOpen ? (
+            <span className="inline-flex items-center gap-1 font-mono text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Registration Open
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 font-mono text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800">
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+              Registration Closed
+            </span>
+          )}
         </div>
         <div className="mt-2 flex items-baseline gap-2">
           <span className="text-2xl sm:text-3xl font-extrabold text-zinc-900 dark:text-zinc-50 font-mono">
             {stats.totalTeams}
           </span>
           <span className="text-xs text-zinc-500 dark:text-zinc-400 font-mono">
-            / {stats.maxCapacity} Max
+            / {stats.maxCapacity} Max Capacity
           </span>
         </div>
         {/* Progress Bar */}
@@ -41,7 +49,9 @@ export function RegistrationStats({ stats }: RegistrationStatsProps) {
           </div>
           <div className="mt-1 flex justify-between text-[10px] text-zinc-400">
             <span>{stats.capacityPercentage}% Filled</span>
-            <span>{Math.max(0, stats.maxCapacity - stats.totalTeams)} slots open</span>
+            <span className="font-semibold text-zinc-600 dark:text-zinc-300">
+              {stats.availableCapacity} slots available
+            </span>
           </div>
         </div>
       </div>

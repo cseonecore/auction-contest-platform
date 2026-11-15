@@ -5,10 +5,13 @@ import {
   RegisteredCaptainDetails,
   RegisteredTeamWithRelations,
   RegistrationStatsData,
+  RegistrationControlSettings,
   ServiceResult,
 } from '../types/registration';
 
-export const MAX_CONTEST_CAPACITY = 60;
+export const DEFAULT_MAX_TEAMS = 60;
+export const DEFAULT_REGISTRATION_OPEN = true;
+export const MAX_CONTEST_CAPACITY = DEFAULT_MAX_TEAMS;
 
 /**
  * Shape of raw joined query result from Supabase PostgREST
@@ -177,15 +180,20 @@ export async function fetchRegisteredTeams(): Promise<ServiceResult<RegisteredTe
 }
 
 /**
- * Calculates registration statistics dynamically from real database records.
+ * Calculates registration statistics dynamically from real database records and settings.
  */
-export function calculateRegistrationStats(teams: RegisteredTeamWithRelations[]): RegistrationStatsData {
+export function calculateRegistrationStats(
+  teams: RegisteredTeamWithRelations[],
+  controlSettings?: Partial<RegistrationControlSettings>
+): RegistrationStatsData {
   const totalTeams = teams.length;
   const totalParticipants = teams.reduce((acc, t) => acc + (t.members?.length || 0), 0);
   const lockedTeams = teams.filter((t) => t.locked).length;
   const unlockedTeams = teams.filter((t) => !t.locked).length;
-  const maxCapacity = MAX_CONTEST_CAPACITY;
-  const capacityPercentage = Math.min(100, Math.round((totalTeams / maxCapacity) * 100));
+  const maxCapacity = controlSettings?.maxTeams ?? MAX_CONTEST_CAPACITY;
+  const availableCapacity = Math.max(0, maxCapacity - totalTeams);
+  const capacityPercentage = maxCapacity > 0 ? Math.min(100, Math.round((totalTeams / maxCapacity) * 100)) : 100;
+  const isRegistrationOpen = controlSettings?.isRegistrationOpen ?? DEFAULT_REGISTRATION_OPEN;
 
   return {
     totalTeams,
@@ -193,7 +201,9 @@ export function calculateRegistrationStats(teams: RegisteredTeamWithRelations[])
     unlockedTeams,
     lockedTeams,
     maxCapacity,
+    availableCapacity,
     capacityPercentage,
+    isRegistrationOpen,
   };
 }
 
@@ -277,6 +287,177 @@ export async function updateAllTeamsLockStatus(
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : `Unknown error attempting to ${locked ? 'lock' : 'unlock'} all teams.`;
+    return {
+      success: false,
+      error: msg,
+    };
+  }
+}
+
+/**
+ * Fetches the global registration control settings (registration_open and max_teams)
+ * from public.settings using the authenticated Supabase client respecting Admin RLS.
+ * Safely falls back to default values if rows are not yet seeded.
+ */
+export async function fetchRegistrationControlSettings(): Promise<
+  ServiceResult<RegistrationControlSettings>
+> {
+  try {
+    const { data, error } = await supabase
+      .from('settings')
+      .select('key, value')
+      .in('key', ['registration_open', 'max_teams']);
+
+    if (error) {
+      return {
+        success: false,
+        error: error.message || 'Failed to fetch registration settings from database.',
+      };
+    }
+
+    let isRegistrationOpen = DEFAULT_REGISTRATION_OPEN;
+    let maxTeams = DEFAULT_MAX_TEAMS;
+
+    if (data) {
+      for (const row of data) {
+        if (row.key === 'registration_open') {
+          const val = row.value;
+          if (typeof val === 'boolean') {
+            isRegistrationOpen = val;
+          } else if (typeof val === 'string') {
+            isRegistrationOpen = val.toLowerCase() === 'true';
+          } else if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
+            const obj = val as Record<string, unknown>;
+            if ('open' in obj) {
+              isRegistrationOpen = Boolean(obj.open);
+            } else if ('value' in obj) {
+              isRegistrationOpen = Boolean(obj.value);
+            }
+          }
+        } else if (row.key === 'max_teams') {
+          const val = row.value;
+          if (typeof val === 'number' && Number.isFinite(val)) {
+            maxTeams = Math.floor(val);
+          } else if (typeof val === 'string') {
+            const parsed = parseInt(val, 10);
+            if (!isNaN(parsed) && parsed > 0) maxTeams = parsed;
+          } else if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
+            const obj = val as Record<string, unknown>;
+            const candidate = obj.max ?? obj.teams ?? obj.value ?? obj.count;
+            if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+              maxTeams = Math.floor(candidate);
+            }
+          }
+        }
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        isRegistrationOpen,
+        maxTeams,
+      },
+    };
+  } catch (err: unknown) {
+    const msg =
+      err instanceof Error ? err.message : 'Unknown error fetching registration settings.';
+    return {
+      success: false,
+      error: msg,
+    };
+  }
+}
+
+/**
+ * Updates the global registration open/closed status in public.settings.
+ * Uses upsert with onConflict on 'key' to cleanly handle existing or missing rows.
+ * Respects Admin RLS policy ("Admins manage settings").
+ */
+export async function updateRegistrationOpenStatus(
+  open: boolean
+): Promise<ServiceResult<{ isRegistrationOpen: boolean }>> {
+  try {
+    const { error } = await supabase
+      .from('settings')
+      .upsert(
+        {
+          key: 'registration_open',
+          value: open,
+        },
+        { onConflict: 'key' }
+      );
+
+    if (error) {
+      return {
+        success: false,
+        error: error.message || `Failed to set registration to ${open ? 'open' : 'closed'}.`,
+      };
+    }
+
+    return {
+      success: true,
+      data: { isRegistrationOpen: open },
+    };
+  } catch (err: unknown) {
+    const msg =
+      err instanceof Error ? err.message : 'Unknown error updating registration open status.';
+    return {
+      success: false,
+      error: msg,
+    };
+  }
+}
+
+/**
+ * Updates the maximum team capacity (max_teams) in public.settings.
+ * Validates that maxTeams is a positive integer and not lower than currently registered teams.
+ * Uses upsert with onConflict on 'key'.
+ * Respects Admin RLS policy ("Admins manage settings").
+ */
+export async function updateMaxTeamsCapacity(
+  maxTeams: number,
+  currentRegisteredCount: number
+): Promise<ServiceResult<{ maxTeams: number }>> {
+  try {
+    if (!Number.isInteger(maxTeams) || maxTeams <= 0) {
+      return {
+        success: false,
+        error: 'Maximum team capacity must be a positive whole number.',
+      };
+    }
+
+    if (maxTeams < currentRegisteredCount) {
+      return {
+        success: false,
+        error: `Maximum capacity (${maxTeams}) cannot be lower than the number of registered teams (${currentRegisteredCount}).`,
+      };
+    }
+
+    const { error } = await supabase
+      .from('settings')
+      .upsert(
+        {
+          key: 'max_teams',
+          value: maxTeams,
+        },
+        { onConflict: 'key' }
+      );
+
+    if (error) {
+      return {
+        success: false,
+        error: error.message || 'Failed to update maximum team capacity.',
+      };
+    }
+
+    return {
+      success: true,
+      data: { maxTeams },
+    };
+  } catch (err: unknown) {
+    const msg =
+      err instanceof Error ? err.message : 'Unknown error updating maximum team capacity.';
     return {
       success: false,
       error: msg,

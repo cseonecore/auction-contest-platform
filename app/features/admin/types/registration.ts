@@ -33,7 +33,14 @@ export interface RegistrationStatsData {
   unlockedTeams: number;
   lockedTeams: number;
   maxCapacity: number;
+  availableCapacity: number;
   capacityPercentage: number;
+  isRegistrationOpen: boolean;
+}
+
+export interface RegistrationControlSettings {
+  isRegistrationOpen: boolean;
+  maxTeams: number;
 }
 
 export type RegistrationLockFilter = 'all' | 'unlocked' | 'locked';
