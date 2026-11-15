@@ -105,9 +105,10 @@ export default function ProfilePage() {
           }
         }
 
-        // If no team in localStorage, fallback to demo team for preview or redirect
+        // If no team in localStorage, redirect to login
         if (!storedTeamName && !storedTeamId) {
-          storedTeamName = "CodeNinjas"; // Default demo team so page is always previewable
+          router.push("/login");
+          return;
         }
 
         const res = await fetch(
@@ -119,46 +120,16 @@ export default function ProfilePage() {
           setTeam(data.team);
           setIsLive(data.team.isAuctionLive || false);
         } else {
-          // Fallback mock team matching Figma Image 1 & 2
-          setTeam({
-            id: storedTeamId || "32254098-4572-472d-b75e-1dc51ebcb273",
-            name: storedTeamName || "Team Name",
-            balance: 100,
-            isAuctionLive: false,
-            members: [
-              {
-                name: "Abhiram Gowda",
-                email: "4mt24cs001@mite.ac.in",
-                usn: "4MT24CS001",
-                branch: "CSE",
-                semester: "5",
-                phone: "+91 98765 43210",
-                isCaptain: true,
-              },
-              {
-                name: "Tarun Kumar",
-                email: "4mt24cs002@mite.ac.in",
-                usn: "4MT24CS002",
-                branch: "CSE",
-                semester: "5",
-                phone: "+91 98765 43210",
-                isCaptain: false,
-              },
-              {
-                name: "Rakshith Rao",
-                email: "4mt24cs003@mite.ac.in",
-                usn: "4MT24CS003",
-                branch: "CSE",
-                semester: "5",
-                phone: "+91 98765 43210",
-                isCaptain: false,
-              },
-            ],
-            assignedProblems: [],
-          });
+          // Team not found in Supabase! Clear invalid session and redirect to login
+          if (typeof window !== "undefined") {
+            localStorage.removeItem("b2b_logged_in_team");
+          }
+          router.push("/login");
+          return;
         }
       } catch (err) {
         console.error("Error loading profile:", err);
+        router.push("/login");
       } finally {
         setLoading(false);
       }
@@ -233,36 +204,6 @@ export default function ProfilePage() {
         setSubmitSuccess(false);
       }, 1500);
     }, 800);
-  };
-
-  // Toggle demo states so user can test Image 1 vs Image 2
-  const toggleProblemsDemo = () => {
-    if (!team) return;
-    if (team.assignedProblems.length > 0) {
-      setTeam({ ...team, assignedProblems: [] });
-    } else {
-      setTeam({
-        ...team,
-        assignedProblems: [
-          {
-            id: "p1",
-            number: 1,
-            title: "Problem 1",
-            statement: "Campus Life Tech — Lost-and-found portal",
-            description: "Build a real-time portal with verification, instant updates, and notification reliability.",
-          },
-          {
-            id: "p2",
-            number: 2,
-            title: "Problem 2",
-            statement: "Canteen Queue & Pre-order System",
-            description: "Develop a live order tracking board with inventory management and token status updates.",
-          },
-        ],
-      });
-      setTimeBonus(10);
-      setQuestionsAnswered(2);
-    }
   };
 
   if (loading) {
@@ -547,26 +488,6 @@ export default function ProfilePage() {
           >
             Submit Solution
           </button>
-
-          {/* Quick Demo Controls */}
-          <div className="ml-auto flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setIsLive((prev) => !prev)}
-              className="text-[11px] text-slate-500 hover:text-slate-300 px-2 py-1 rounded-md border border-white/10 transition-colors cursor-pointer"
-              title="Toggle Live vs Upcoming status for testing"
-            >
-              Toggle Status: {isLive ? "Live" : "Upcoming"}
-            </button>
-            <button
-              type="button"
-              onClick={toggleProblemsDemo}
-              className="text-[11px] text-slate-500 hover:text-slate-300 px-2 py-1 rounded-md border border-white/10 transition-colors cursor-pointer"
-              title="Toggle between Image 1 (Problems) and Image 2 (No Problems)"
-            >
-              Toggle Problems: {currentTeam.assignedProblems.length > 0 ? "Assigned" : "None"}
-            </button>
-          </div>
         </div>
       </div>
 
