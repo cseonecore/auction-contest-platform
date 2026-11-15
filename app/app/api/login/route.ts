@@ -37,88 +37,94 @@ export async function POST(request: Request) {
     const cleanTeamName = teamName.trim();
     const db = getDbClient();
 
-    // 1. Check team in database
-    try {
-      const { data: team, error: teamErr } = await db
-        .from("teams")
-        .select("id, name, locked, created_at")
-        .ilike("name", cleanTeamName)
-        .maybeSingle();
+    // 1. Strict Query: Find Team in Supabase
+    const { data: team, error: teamErr } = await db
+      .from("teams")
+      .select("id, name, captain_id, locked, created_at")
+      .ilike("name", cleanTeamName)
+      .maybeSingle();
 
-      if (teamErr) {
-        console.warn("[Login API] Error querying team:", teamErr);
-      }
+    if (teamErr) {
+      console.error("[Login API] Supabase query error:", teamErr);
+      return NextResponse.json(
+        { error: "Database error occurred while verifying credentials." },
+        { status: 500 }
+      );
+    }
 
-      if (team) {
-        // Fetch team members
-        const { data: members, error: memErr } = await db
-          .from("members")
-          .select("id, name, email, college")
-          .eq("team_id", team.id);
+    if (!team) {
+      return NextResponse.json(
+        { error: `Team "${cleanTeamName}" was not found in the database. Please register first.` },
+        { status: 404 }
+      );
+    }
 
-        if (memErr) {
-          console.warn("[Login API] Error querying members:", memErr);
-        }
+    // 2. Fetch all members of this team
+    const { data: members, error: memErr } = await db
+      .from("members")
+      .select("id, name, email, college, created_at")
+      .eq("team_id", team.id)
+      .order("created_at", { ascending: true });
 
-        // Verify captain's USN matches (email format is usn@mite.ac.in or in college field)
-        const expectedEmail = `${captainUsn.toLowerCase()}@mite.ac.in`;
-        const matchedMember = members?.find(
+    if (memErr || !members || members.length === 0) {
+      return NextResponse.json(
+        { error: "No registered members found for this team." },
+        { status: 404 }
+      );
+    }
+
+    // 3. Identify the Captain of this team
+    let captain = null;
+    if (team.captain_id) {
+      captain = members.find((m) => m.id === team.captain_id);
+    }
+    if (!captain) {
+      captain =
+        members.find(
           (m) =>
-            m.email?.toLowerCase() === expectedEmail ||
-            m.email?.toUpperCase().includes(captainUsn) ||
-            m.college?.toUpperCase().includes(captainUsn)
-        );
-
-        if (matchedMember || !members || members.length === 0) {
-          return NextResponse.json({
-            success: true,
-            team: {
-              id: team.id,
-              name: team.name,
-              locked: team.locked,
-              captain: matchedMember || members?.[0],
-              members: members || [],
-            },
-          });
-        } else {
-          return NextResponse.json(
-            { error: "The provided Captain USN does not match this team." },
-            { status: 401 }
-          );
-        }
-      }
-    } catch (dbErr) {
-      console.warn("[Login API] DB check fallback:", dbErr);
+            m.college &&
+            (m.college.toLowerCase().includes("sem") ||
+              m.college.toLowerCase().includes("captain") ||
+              m.college.toLowerCase().includes("ph"))
+        ) || members[0];
     }
 
-    // 2. Demo/Contest fallback if team was registered offline or with mock data
-    if (cleanTeamName.length >= 2) {
-      return NextResponse.json({
-        success: true,
-        team: {
-          id: `TEAM-${Math.floor(1000 + Math.random() * 9000)}`,
-          name: cleanTeamName,
-          locked: false,
-          captain: {
-            name: "Captain",
-            email: `${captainUsn.toLowerCase()}@mite.ac.in`,
-          },
-          members: [
-            {
-              name: "Captain",
-              email: `${captainUsn.toLowerCase()}@mite.ac.in`,
-            },
-          ],
+    // 4. Strictly match Captain USN against the Captain's registered USN/email
+    const expectedEmail = `${captainUsn.toLowerCase()}@mite.ac.in`;
+    const isCaptainMatch =
+      captain?.email &&
+      (captain.email.toLowerCase() === expectedEmail ||
+        captain.email.toUpperCase().includes(captainUsn) ||
+        (captain.college && captain.college.toUpperCase().includes(captainUsn)));
+
+    if (!isCaptainMatch) {
+      return NextResponse.json(
+        {
+          error: "Invalid Captain USN for this team. Please enter the correct USN used during registration.",
         },
-      });
+        { status: 401 }
+      );
     }
 
-    return NextResponse.json(
-      { error: "Invalid Team Name or Captain USN. Please check your credentials." },
-      { status: 401 }
-    );
+    // 5. Successful strictly verified login
+    return NextResponse.json({
+      success: true,
+      team: {
+        id: team.id,
+        name: team.name,
+        locked: team.locked,
+        captain: {
+          id: captain.id,
+          name: captain.name,
+          email: captain.email,
+          college: captain.college,
+        },
+        members: members,
+      },
+    });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Authentication failed.";
+    console.error("[Login API] Exception:", msg);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
