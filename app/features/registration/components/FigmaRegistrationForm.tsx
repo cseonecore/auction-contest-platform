@@ -33,6 +33,46 @@ export const FigmaRegistrationForm: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [successEmail, setSuccessEmail] = useState<string | null>(null);
   const [limitReached, setLimitReached] = useState(false);
+  const [registrationClosed, setRegistrationClosed] = useState(false);
+  const [isCheckingStatus, setIsCheckingStatus] = useState(true);
+
+  // Check public registration status on initial mount
+  React.useEffect(() => {
+    let isMounted = true;
+
+    async function checkRegistrationStatus() {
+      try {
+        const res = await fetch("/api/register");
+        if (res.ok) {
+          const data = await res.json();
+          if (isMounted) {
+            if (data.isOpen === false || data.registration_open === false) {
+              setRegistrationClosed(true);
+            } else if (
+              (data.remainingSlots !== undefined && data.remainingSlots <= 0) ||
+              (data.totalRegistered !== undefined &&
+                data.maxTeams !== undefined &&
+                data.totalRegistered >= data.maxTeams)
+            ) {
+              setLimitReached(true);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[Registration] Failed to fetch registration status:", err);
+      } finally {
+        if (isMounted) {
+          setIsCheckingStatus(false);
+        }
+      }
+    }
+
+    void checkRegistrationStatus();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -126,7 +166,12 @@ export const FigmaRegistrationForm: React.FC = () => {
 
       const data = await res.json();
 
-      if (res.status === 403 || data.status === "limit_reached") {
+      if (data.status === "registration_closed" || data.code === "registration_closed") {
+        setRegistrationClosed(true);
+        return;
+      }
+
+      if (res.status === 403 || data.status === "limit_reached" || data.code === "limit_reached") {
         setLimitReached(true);
         return;
       }
@@ -147,6 +192,21 @@ export const FigmaRegistrationForm: React.FC = () => {
       setLoading(false);
     }
   };
+
+  // -------------------------------------------------------------
+  // VIEW 0: Status Checking Loader
+  // -------------------------------------------------------------
+  if (isCheckingStatus) {
+    return (
+      <div className="w-full max-w-xl mx-auto text-center py-16 animate-in fade-in duration-150">
+        <FigmaHeaderLogos />
+        <div className="mt-8 flex flex-col items-center justify-center gap-3">
+          <Loader2 className="w-6 h-6 text-[#ff5500] animate-spin" />
+          <p className="text-xs text-slate-400 font-medium">Checking contest status...</p>
+        </div>
+      </div>
+    );
+  }
 
   // -------------------------------------------------------------
   // VIEW 1: Success Screen (Image 2 - Thank You For Registering)
@@ -176,7 +236,33 @@ export const FigmaRegistrationForm: React.FC = () => {
   }
 
   // -------------------------------------------------------------
-  // VIEW 2: Limit Reached Screen (Image 3 - Sorry Limit Reached)
+  // VIEW 2: Registration Closed Screen
+  // -------------------------------------------------------------
+  if (registrationClosed) {
+    return (
+      <div className="w-full max-w-xl mx-auto text-center py-12 animate-in fade-in duration-200">
+        <FigmaHeaderLogos />
+        <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
+          Registration Closed
+        </h1>
+        <p className="text-xs sm:text-sm text-slate-500 font-normal mt-2.5 max-w-md mx-auto">
+          Registration is currently closed. Please contact the organizers for further information.
+        </p>
+
+        <div className="mt-8">
+          <Link
+            href="/login"
+            className="bg-[#ff5500] hover:bg-[#e64d00] text-white font-semibold text-xs sm:text-sm px-8 py-2.5 rounded-full shadow-sm transition-all inline-block"
+          >
+            Back to Log in
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------
+  // VIEW 3: Limit Reached Screen (Image 3 - Sorry Limit Reached)
   // -------------------------------------------------------------
   if (limitReached) {
     return (
