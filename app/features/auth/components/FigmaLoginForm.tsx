@@ -8,8 +8,8 @@ import { FigmaHeaderLogos } from "@/components/shared/FigmaHeaderLogos";
 export const FigmaLoginForm: React.FC = () => {
   const router = useRouter();
   const [teamName, setTeamName] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const [captainUsn, setCaptainUsn] = useState("");
+  const [showUsn, setShowUsn] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -18,12 +18,12 @@ export const FigmaLoginForm: React.FC = () => {
     setError(null);
 
     if (!teamName.trim()) {
-      setError("Please enter your Team Name or Team ID.");
+      setError("Please enter your Team Name.");
       return;
     }
 
-    if (!password) {
-      setError("Please enter your password.");
+    if (!captainUsn.trim()) {
+      setError("Please enter the Captain USN.");
       return;
     }
 
@@ -33,13 +33,18 @@ export const FigmaLoginForm: React.FC = () => {
       const res = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ teamName: teamName.trim(), password }),
+        body: JSON.stringify({
+          teamName: teamName.trim(),
+          captainUsn: captainUsn.trim().toUpperCase(),
+        }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || "Invalid Team Name or Password.");
+        throw new Error(
+          data.error || "Invalid Team Name or Captain USN. Please check your credentials."
+        );
       }
 
       // Store current team in localStorage
@@ -67,7 +72,7 @@ export const FigmaLoginForm: React.FC = () => {
         Log in To Your Profile
       </h1>
       <p className="text-xs sm:text-sm text-slate-500 font-normal mt-2">
-        Enter your Team ID and Password and view your profile
+        Enter your Team ID and Captain USN and view your profile
       </p>
 
       {/* Error Message */}
@@ -94,26 +99,26 @@ export const FigmaLoginForm: React.FC = () => {
           />
         </div>
 
-        {/* Password Input */}
+        {/* Captain USN Input (replaces generic password) */}
         <div className="relative">
           <input
-            type={showPassword ? "text" : "password"}
+            type={showUsn ? "text" : "password"}
             required
-            placeholder="Password"
-            value={password}
+            placeholder="Captain USN"
+            value={captainUsn}
             onChange={(e) => {
-              setPassword(e.target.value);
+              setCaptainUsn(e.target.value.toUpperCase());
               if (error) setError(null);
             }}
-            className="w-full pl-5 pr-12 py-3 rounded-full border border-slate-300 text-sm placeholder:text-slate-400 text-slate-900 bg-white focus:outline-none focus:border-[#ff5500] focus:ring-1 focus:ring-[#ff5500] transition-all shadow-xs"
+            className="w-full pl-5 pr-12 py-3 rounded-full border border-slate-300 text-sm placeholder:text-slate-400 text-slate-900 bg-white focus:outline-none focus:border-[#ff5500] focus:ring-1 focus:ring-[#ff5500] transition-all shadow-xs uppercase font-mono"
           />
           <button
             type="button"
-            onClick={() => setShowPassword((prev) => !prev)}
+            onClick={() => setShowUsn((prev) => !prev)}
             className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1"
-            aria-label={showPassword ? "Hide password" : "Show password"}
+            aria-label={showUsn ? "Hide Captain USN" : "Show Captain USN"}
           >
-            {showPassword ? (
+            {showUsn ? (
               <EyeOff className="w-4 h-4" />
             ) : (
               <Eye className="w-4 h-4" />
