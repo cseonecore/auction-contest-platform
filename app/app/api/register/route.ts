@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@supabase/supabase-js";
 
 const MAX_CONTEST_TEAMS = 60; // Max allowed teams for the competition
 
@@ -22,6 +22,20 @@ interface RegisterRequestBody {
     name: string;
     usn: string;
   }>;
+}
+
+// Server-side database client: prefers service role key to bypass RLS, or falls back to public key
+function getDbClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    "placeholder-key";
+
+  return createClient(url, key, {
+    auth: { persistSession: false },
+  });
 }
 
 export async function POST(request: Request) {
@@ -65,100 +79,96 @@ export async function POST(request: Request) {
     const captainSemester = captain.semester.trim();
     const captainPhone = captain.phone.trim();
 
-    // 2. Check team capacity limit (Figma screen 3: Sorry Limit Reached)
-    try {
-      const { count } = await supabase
-        .from("teams")
-        .select("*", { count: "exact", head: true });
+    const db = getDbClient();
 
-      if (count !== null && count >= MAX_CONTEST_TEAMS) {
-        return NextResponse.json(
-          { status: "limit_reached", message: "Sorry, all slots are filled!" },
-          { status: 403 }
-        );
-      }
-    } catch {
-      // Continue if count check times out
+    // 2. Check team capacity limit (Figma screen 3: Sorry Limit Reached)
+    const { count } = await db
+      .from("teams")
+      .select("*", { count: "exact", head: true });
+
+    if (count !== null && count >= MAX_CONTEST_TEAMS) {
+      return NextResponse.json(
+        { status: "limit_reached", message: "Sorry, all slots are filled!" },
+        { status: 403 }
+      );
     }
 
     // 3. Check if team name already exists
-    try {
-      const { data: existingTeam } = await supabase
-        .from("teams")
-        .select("id")
-        .ilike("name", cleanTeamName)
-        .maybeSingle();
+    const { data: existingTeam } = await db
+      .from("teams")
+      .select("id")
+      .ilike("name", cleanTeamName)
+      .maybeSingle();
 
-      if (existingTeam) {
-        return NextResponse.json(
-          { error: `The team name "${cleanTeamName}" is already registered. Please choose another.` },
-          { status: 409 }
-        );
-      }
-    } catch {
-      // Continue if DB check fails
+    if (existingTeam) {
+      return NextResponse.json(
+        { error: `The team name "${cleanTeamName}" is already registered. Please choose another name.` },
+        { status: 409 }
+      );
     }
 
-    // 4. Insert into database
-    let teamId: string | null = null;
-    try {
-      const { data: teamData, error: teamError } = await supabase
-        .from("teams")
-        .insert({
-          name: cleanTeamName,
-          locked: false,
-        })
-        .select("id")
-        .single();
+    // 4. Insert Team into Supabase `teams` table
+    const { data: teamData, error: teamError } = await db
+      .from("teams")
+      .insert({
+        name: cleanTeamName,
+        locked: false,
+      })
+      .select("id")
+      .single();
 
-      if (teamError) {
-        console.warn("[Register API] Supabase insert team warning:", teamError.message);
-      } else if (teamData) {
-        teamId = teamData.id;
+    if (teamError) {
+      console.error("[Register API] Error inserting into teams:", teamError);
+      return NextResponse.json(
+        {
+          error: `Database insert failed: ${teamError.message}. (Hint: Run the RLS INSERT policy in Supabase SQL Editor).`,
+        },
+        { status: 500 }
+      );
+    }
 
-        // Insert Captain with semester and phone
-        await supabase.from("members").insert({
+    const teamId = teamData.id;
+
+    // 5. Insert Captain into `members` table
+    const { error: captainError } = await db.from("members").insert({
+      team_id: teamId,
+      name: captain.name.trim(),
+      email: captainEmail,
+      college: `MITE - Sem ${captainSemester} (Ph: ${captainPhone})`,
+    });
+
+    if (captainError) {
+      console.error("[Register API] Error inserting captain:", captainError);
+    }
+
+    // 6. Insert Teammates into `members` table
+    for (const tm of members) {
+      if (tm.name?.trim() && tm.usn?.trim()) {
+        const tmUsn = tm.usn.trim().toUpperCase();
+        await db.from("members").insert({
           team_id: teamId,
-          name: captain.name.trim(),
-          email: captainEmail,
-          college: `MITE - Sem ${captainSemester} (Ph: ${captainPhone})`,
+          name: tm.name.trim(),
+          email: `${tmUsn.toLowerCase()}@mite.ac.in`,
+          college: "MITE",
         });
-
-        // Insert Teammates
-        for (const tm of members) {
-          if (tm.name?.trim() && tm.usn?.trim()) {
-            const tmUsn = tm.usn.trim().toUpperCase();
-            await supabase.from("members").insert({
-              team_id: teamId,
-              name: tm.name.trim(),
-              email: `${tmUsn.toLowerCase()}@mite.ac.in`,
-              college: "MITE",
-            });
-          }
-        }
-
-        // Initialize Wallets with 100 coins (as seen in Figma Preview)
-        await supabase.from("wallets").insert([
-          { team_id: teamId, round: 1, balance: 100 },
-          { team_id: teamId, round: 2, balance: 100 },
-        ]);
       }
-    } catch (dbErr) {
-      console.warn("[Register API] Database integration fallback:", dbErr);
     }
 
-    // Generate response
-    const generatedId = teamId || `B2B-${Math.floor(1000 + Math.random() * 9000)}`;
+    // 7. Initialize Wallets with 100 coins for both rounds
+    await db.from("wallets").insert([
+      { team_id: teamId, round: 1, balance: 100 },
+      { team_id: teamId, round: 2, balance: 100 },
+    ]);
 
     return NextResponse.json({
       success: true,
-      teamId: generatedId,
+      teamId,
       teamName: cleanTeamName,
-      captionEmail: captainEmail,
       captainEmail,
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Failed to register team.";
+    console.error("[Register API] Exception:", msg);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
