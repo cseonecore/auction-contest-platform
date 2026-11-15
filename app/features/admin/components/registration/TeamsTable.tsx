@@ -15,6 +15,9 @@ interface TeamsTableProps {
   onLockFilterChange: (f: RegistrationLockFilter) => void;
   onRefresh: () => void;
   isLoading: boolean;
+  onToggleLock?: (teamId: string, currentLocked: boolean) => Promise<void>;
+  updatingLockTeamId?: string | null;
+  isGlobalUpdating?: boolean;
 }
 
 export function TeamsTable({
@@ -26,7 +29,11 @@ export function TeamsTable({
   onLockFilterChange,
   onRefresh,
   isLoading,
+  onToggleLock,
+  updatingLockTeamId,
+  isGlobalUpdating,
 }: TeamsTableProps) {
+  const isAnyUpdating = (updatingLockTeamId !== null && updatingLockTeamId !== undefined) || !!isGlobalUpdating;
   // Filtered and searched teams
   const filteredTeams = useMemo(() => {
     return teams.filter((team) => {
@@ -245,16 +252,84 @@ export function TeamsTable({
 
                       {/* Action */}
                       <td className="px-4 py-3 text-right">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onSelectTeam(team);
-                          }}
-                          className="px-2.5 py-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-md transition-colors"
-                        >
-                          View Roster &rarr;
-                        </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          {onToggleLock && (() => {
+                            const isThisTeamUpdating = updatingLockTeamId === team.id;
+                            const isLockDisabled = isAnyUpdating || isLoading;
+                            const buttonTitle = isGlobalUpdating
+                              ? 'Global update in progress'
+                              : isAnyUpdating && !isThisTeamUpdating
+                              ? 'Another team update in progress'
+                              : team.locked
+                              ? 'Unlock team'
+                              : 'Lock team';
+
+                            return (
+                              <button
+                                type="button"
+                                disabled={isLockDisabled}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (isLockDisabled) return;
+                                  void onToggleLock(team.id, team.locked);
+                                }}
+                                className={`inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-md border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                                  team.locked
+                                    ? 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/60'
+                                    : 'text-zinc-700 dark:text-zinc-300 bg-zinc-50 dark:bg-zinc-800/60 border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-700'
+                                }`}
+                                title={buttonTitle}
+                              >
+                                {isThisTeamUpdating ? (
+                                  <span
+                                    className={`w-3 h-3 border-2 border-t-transparent rounded-full animate-spin ${
+                                      team.locked ? 'border-amber-600' : 'border-zinc-600'
+                                    }`}
+                                  />
+                                ) : team.locked ? (
+                                  <svg
+                                    className="w-3 h-3 shrink-0"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"
+                                    />
+                                  </svg>
+                                ) : (
+                                  <svg
+                                    className="w-3 h-3 shrink-0"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"
+                                    />
+                                  </svg>
+                                )}
+                                <span>{team.locked ? 'Unlock' : 'Lock'}</span>
+                              </button>
+                            );
+                          })()}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectTeam(team);
+                            }}
+                            className="px-2.5 py-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-md transition-colors whitespace-nowrap"
+                          >
+                            View Roster &rarr;
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );

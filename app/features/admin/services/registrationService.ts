@@ -196,3 +196,90 @@ export function calculateRegistrationStats(teams: RegisteredTeamWithRelations[])
     capacityPercentage,
   };
 }
+
+/**
+ * Updates the lock status of a single team.
+ * Uses the authenticated Supabase client respecting Admin RLS policy ("Admins manage teams").
+ */
+export async function updateTeamLockStatus(
+  teamId: string,
+  locked: boolean
+): Promise<ServiceResult<{ id: string; locked: boolean }>> {
+  try {
+    const { data, error } = await supabase
+      .from('teams')
+      .update({ locked })
+      .eq('id', teamId)
+      .select('id, locked')
+      .single();
+
+    if (error) {
+      return {
+        success: false,
+        error: error.message || `Failed to update team lock status to ${locked ? 'locked' : 'unlocked'}.`,
+      };
+    }
+
+    if (!data) {
+      return {
+        success: false,
+        error: 'Team not found or update returned no data.',
+      };
+    }
+
+    return {
+      success: true,
+      data: {
+        id: data.id,
+        locked: data.locked,
+      },
+    };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Unknown error updating team lock status.';
+    return {
+      success: false,
+      error: msg,
+    };
+  }
+}
+
+/**
+ * Updates the lock status of all teams globally.
+ * To optimize database writes and minimize impact, only updates teams whose
+ * current locked status differs from the target status.
+ * Uses the authenticated Supabase client respecting Admin RLS policy ("Admins manage teams").
+ */
+export async function updateAllTeamsLockStatus(
+  locked: boolean
+): Promise<ServiceResult<{ updatedCount: number; locked: boolean }>> {
+  try {
+    const { data, error } = await supabase
+      .from('teams')
+      .update({ locked })
+      .neq('locked', locked)
+      .select('id');
+
+    if (error) {
+      return {
+        success: false,
+        error: error.message || `Failed to ${locked ? 'lock' : 'unlock'} all teams.`,
+      };
+    }
+
+    const updatedCount = Array.isArray(data) ? data.length : 0;
+
+    return {
+      success: true,
+      data: {
+        updatedCount,
+        locked,
+      },
+    };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : `Unknown error attempting to ${locked ? 'lock' : 'unlock'} all teams.`;
+    return {
+      success: false,
+      error: msg,
+    };
+  }
+}
