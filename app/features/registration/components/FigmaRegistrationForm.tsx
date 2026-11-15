@@ -10,9 +10,11 @@ export const FigmaRegistrationForm: React.FC = () => {
   const [teamName, setTeamName] = useState("");
   const [teamSize, setTeamSize] = useState<2 | 3 | 4>(3);
 
-  // Caption details
-  const [captionName, setCaptionName] = useState("");
-  const [captionUsn, setCaptionUsn] = useState("");
+  // Captain details (with Semester & Phone confirmation)
+  const [captainName, setCaptainName] = useState("");
+  const [captainUsn, setCaptainUsn] = useState("");
+  const [captainSemester, setCaptainSemester] = useState("");
+  const [captainPhone, setCaptainPhone] = useState("");
 
   // Member 2
   const [m2Name, setM2Name] = useState("");
@@ -26,7 +28,7 @@ export const FigmaRegistrationForm: React.FC = () => {
   const [m4Name, setM4Name] = useState("");
   const [m4Usn, setM4Usn] = useState("");
 
-  // State
+  // Form State
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successEmail, setSuccessEmail] = useState<string | null>(null);
@@ -36,34 +38,54 @@ export const FigmaRegistrationForm: React.FC = () => {
     e.preventDefault();
     setError(null);
 
-    // Validation
+    // 1. Team Name validation
     if (!teamName.trim()) {
       setError("Please enter a Team Name.");
       return;
     }
 
-    if (!captionName.trim() || !captionUsn.trim()) {
-      setError("Please fill in Team Caption Name and USN.");
+    // 2. Captain validation (Name, USN, Semester, Phone)
+    if (!captainName.trim()) {
+      setError("Please enter Captain Name.");
       return;
     }
 
+    if (!captainUsn.trim()) {
+      setError("Please enter Captain USN.");
+      return;
+    }
+
+    if (!captainSemester) {
+      setError("Please select Captain's Semester.");
+      return;
+    }
+
+    const cleanPhone = captainPhone.replace(/[\s-]/g, "");
+    if (!cleanPhone || cleanPhone.length < 10) {
+      setError("Please enter a valid 10-digit Phone Number for the Captain.");
+      return;
+    }
+
+    // 3. Member 2 validation
     if (!m2Name.trim() || !m2Usn.trim()) {
       setError("Please fill in Member 2 Name and USN.");
       return;
     }
 
+    // 4. Member 3 validation (if team size >= 3)
     if (teamSize >= 3 && (!m3Name.trim() || !m3Usn.trim())) {
       setError("Please fill in Member 3 Name and USN.");
       return;
     }
 
+    // 5. Member 4 validation (if team size == 4)
     if (teamSize >= 4 && (!m4Name.trim() || !m4Usn.trim())) {
       setError("Please fill in Member 4 Name and USN.");
       return;
     }
 
-    // Check duplicate USNs
-    const usnList = [captionUsn.trim().toUpperCase(), m2Usn.trim().toUpperCase()];
+    // 6. Check for duplicate USNs
+    const usnList = [captainUsn.trim().toUpperCase(), m2Usn.trim().toUpperCase()];
     if (teamSize >= 3) usnList.push(m3Usn.trim().toUpperCase());
     if (teamSize >= 4) usnList.push(m4Usn.trim().toUpperCase());
 
@@ -92,9 +114,11 @@ export const FigmaRegistrationForm: React.FC = () => {
         body: JSON.stringify({
           teamName: teamName.trim(),
           teamSize,
-          caption: {
-            name: captionName.trim(),
-            usn: captionUsn.trim().toUpperCase(),
+          captain: {
+            name: captainName.trim(),
+            usn: captainUsn.trim().toUpperCase(),
+            semester: captainSemester,
+            phone: cleanPhone,
           },
           members,
         }),
@@ -111,7 +135,11 @@ export const FigmaRegistrationForm: React.FC = () => {
         throw new Error(data.error || "Registration failed. Please try again.");
       }
 
-      setSuccessEmail(data.captionEmail || `${captionUsn.trim().toLowerCase()}@mite.ac.in`);
+      setSuccessEmail(
+        data.captainEmail ||
+          data.captionEmail ||
+          `${captainUsn.trim().toLowerCase()}@mite.ac.in`
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to register team.";
       setError(msg);
@@ -131,7 +159,7 @@ export const FigmaRegistrationForm: React.FC = () => {
           Thank You For Registering
         </h1>
         <p className="text-xs sm:text-sm text-slate-500 font-normal mt-2.5 max-w-md mx-auto">
-          Your Team ID and Password will be sent shortly to your captions{" "}
+          Your Team ID and Password will be sent shortly to your captain&apos;s{" "}
           <span className="font-semibold text-slate-800">{successEmail}</span>
         </p>
 
@@ -240,28 +268,59 @@ export const FigmaRegistrationForm: React.FC = () => {
               </div>
             </div>
 
-            {/* Caption */}
+            {/* Captain (with Semester and Phone Number confirmation) */}
             <div className="flex items-start gap-2 pt-1">
               <label className="text-xs font-semibold w-20 shrink-0 pt-1.5">
-                Caption
+                Captain
               </label>
               <div className="w-full space-y-1.5">
                 <input
                   type="text"
                   required
-                  placeholder="Name"
-                  value={captionName}
-                  onChange={(e) => setCaptionName(e.target.value)}
+                  placeholder="Captain Name"
+                  value={captainName}
+                  onChange={(e) => setCaptainName(e.target.value)}
                   className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400"
                 />
                 <input
                   type="text"
                   required
                   placeholder="USN [ 4MT2XBBMMM ]"
-                  value={captionUsn}
-                  onChange={(e) => setCaptionUsn(e.target.value.toUpperCase())}
+                  value={captainUsn}
+                  onChange={(e) => setCaptainUsn(e.target.value.toUpperCase())}
                   className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
                 />
+
+                {/* Semester & Phone Number Confirmation (Only for Captain) */}
+                <div className="grid grid-cols-2 gap-1.5">
+                  <select
+                    value={captainSemester}
+                    onChange={(e) => setCaptainSemester(e.target.value)}
+                    required
+                    className="w-full bg-white text-slate-900 text-xs px-2.5 py-1.5 rounded-lg outline-none cursor-pointer"
+                  >
+                    <option value="" disabled>
+                      Semester
+                    </option>
+                    <option value="1">1st Sem</option>
+                    <option value="2">2nd Sem</option>
+                    <option value="3">3rd Sem</option>
+                    <option value="4">4th Sem</option>
+                    <option value="5">5th Sem</option>
+                    <option value="6">6th Sem</option>
+                    <option value="7">7th Sem</option>
+                    <option value="8">8th Sem</option>
+                  </select>
+
+                  <input
+                    type="tel"
+                    required
+                    placeholder="Phone Number"
+                    value={captainPhone}
+                    onChange={(e) => setCaptainPhone(e.target.value)}
+                    className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
+                  />
+                </div>
               </div>
             </div>
 
@@ -347,7 +406,7 @@ export const FigmaRegistrationForm: React.FC = () => {
 
           {/* RIGHT: Live Preview Subcard */}
           <div className="flex flex-col items-center justify-center p-4 text-center">
-            {/* Character */}
+            {/* Character Mascot */}
             <div className="w-24 h-24 relative mb-3">
               <Image
                 src="/characters/Character-01.png"
@@ -377,7 +436,11 @@ export const FigmaRegistrationForm: React.FC = () => {
                 Team : {teamSize}
               </span>
               <span className="bg-[#bbf7d0] text-[#166534] font-semibold text-[11px] px-3 py-1 rounded-full shadow-2xs">
-                {captionName.trim() || "Member 1 Name"}
+                {captainName.trim()
+                  ? `${captainName.trim()} (Captain${
+                      captainSemester ? ` - Sem ${captainSemester}` : ""
+                    })`
+                  : "Member 1 (Captain)"}
               </span>
               <span className="bg-[#fecaca] text-[#991b1b] font-semibold text-[11px] px-3 py-1 rounded-full shadow-2xs">
                 {m2Name.trim() || "Member 2 Name"}

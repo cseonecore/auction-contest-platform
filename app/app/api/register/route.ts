@@ -6,9 +6,17 @@ const MAX_CONTEST_TEAMS = 60; // Max allowed teams for the competition
 interface RegisterRequestBody {
   teamName: string;
   teamSize: number;
-  caption: {
+  caption?: {
     name: string;
     usn: string;
+    semester?: string;
+    phone?: string;
+  };
+  captain?: {
+    name: string;
+    usn: string;
+    semester?: string;
+    phone?: string;
   };
   members: Array<{
     name: string;
@@ -19,7 +27,8 @@ interface RegisterRequestBody {
 export async function POST(request: Request) {
   try {
     const body: RegisterRequestBody = await request.json();
-    const { teamName, teamSize, caption, members } = body;
+    const { teamName, teamSize, members } = body;
+    const captain = body.captain || body.caption;
 
     // 1. Basic validation
     if (!teamName?.trim()) {
@@ -29,16 +38,32 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!caption?.name?.trim() || !caption?.usn?.trim()) {
+    if (!captain?.name?.trim() || !captain?.usn?.trim()) {
       return NextResponse.json(
-        { error: "Team Captain details are required." },
+        { error: "Team Captain Name and USN are required." },
+        { status: 400 }
+      );
+    }
+
+    if (!captain?.semester?.trim()) {
+      return NextResponse.json(
+        { error: "Team Captain Semester confirmation is required." },
+        { status: 400 }
+      );
+    }
+
+    if (!captain?.phone?.trim()) {
+      return NextResponse.json(
+        { error: "Team Captain Phone Number is required." },
         { status: 400 }
       );
     }
 
     const cleanTeamName = teamName.trim();
-    const cleanCaptionUsn = caption.usn.trim().toUpperCase();
-    const captainEmail = `${cleanCaptionUsn.toLowerCase()}@mite.ac.in`;
+    const cleanCaptainUsn = captain.usn.trim().toUpperCase();
+    const captainEmail = `${cleanCaptainUsn.toLowerCase()}@mite.ac.in`;
+    const captainSemester = captain.semester.trim();
+    const captainPhone = captain.phone.trim();
 
     // 2. Check team capacity limit (Figma screen 3: Sorry Limit Reached)
     try {
@@ -91,12 +116,12 @@ export async function POST(request: Request) {
       } else if (teamData) {
         teamId = teamData.id;
 
-        // Insert Captain
+        // Insert Captain with semester and phone
         await supabase.from("members").insert({
           team_id: teamId,
-          name: caption.name.trim(),
+          name: captain.name.trim(),
           email: captainEmail,
-          college: "MITE",
+          college: `MITE - Sem ${captainSemester} (Ph: ${captainPhone})`,
         });
 
         // Insert Teammates
@@ -130,6 +155,7 @@ export async function POST(request: Request) {
       teamId: generatedId,
       teamName: cleanTeamName,
       captionEmail: captainEmail,
+      captainEmail,
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Failed to register team.";
