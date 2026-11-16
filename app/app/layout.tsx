@@ -9,8 +9,8 @@ export const metadata: Metadata = {
   description:
     "Web-based App Development Auction Contest platform for team registration, live bidding, submissions, and AI evaluation.",
   icons: {
-    icon: "/bid2build_icon-01.png",
-    apple: "/bid2build_icon-01.png",
+    icon: "/new_bid2build_logo.png",
+    apple: "/new_bid2build_logo.png",
   },
 };
 
