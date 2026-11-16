@@ -123,6 +123,21 @@ export const RegistrationSuccess: React.FC<RegistrationSuccessProps> = ({
         </div>
       </div>
 
+      {/* Initial Password Display */}
+        {data.initialPassword && (
+          <div className="mt-4 p-4 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200/50 dark:border-indigo-400/80 text-center">
+            <span className="text-xs uppercase font-bold tracking-wider text-indigo-600 dark:text-indigo-400">
+              Initial Password
+            </span>
+            <p className="text-lg font-bold text-indigo-800 dark:text-indigo-200 mt-1">
+              {data.initialPassword}
+            </p>
+            <p className="text-xs text-indigo-500 dark:text-indigo-400 mt-2">
+              Share this with the captain. The captain must change this password after first login.
+            </p>
+          </div>
+        )}
+
       {/* Action buttons */}
       <div className="mt-8 flex flex-col sm:flex-row justify-center gap-3">
         <button

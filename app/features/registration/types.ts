@@ -37,4 +37,5 @@ export interface RegistrationSuccessData {
   registeredAt: string;
   leader: TeamLeader;
   teammates: Teammate[];
+  initialPassword: string; // Added: initial password for captain login
 }
