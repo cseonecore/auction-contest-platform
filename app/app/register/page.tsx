@@ -18,28 +18,41 @@ export default function RegisterPage() {
         {/* Left: Brand Logo */}
         <B2BLogo />
 
-        {/* Center: MITE Official College Logo & NAAC A+ Badge */}
-        <div className="flex items-center gap-3 sm:gap-4 px-3 sm:px-4 py-1.5 sm:py-2 bg-white/80 backdrop-blur-xs rounded-2xl border border-slate-200/70 shadow-2xs">
+        {/* Center: MITE Official College Logo, NAAC A+ Badge & CORE Emblem */}
+        <div className="flex items-center gap-2.5 sm:gap-3.5 px-3 sm:px-4 py-1.5 sm:py-2 bg-white/80 backdrop-blur-xs rounded-2xl border border-slate-200/70 shadow-2xs">
           <div className="flex items-center">
             <Image
               src="/logos/mite-logo.png"
               alt="MITE - Mangalore Institute of Technology & Engineering"
               width={200}
               height={76}
-              className="h-8 sm:h-11 md:h-12 w-auto object-contain hover:opacity-95 transition-opacity"
+              className="h-8 sm:h-10 md:h-11 w-auto object-contain hover:opacity-95 transition-opacity"
               priority
             />
           </div>
-          <div className="h-6 sm:h-8 w-px bg-slate-200/90" />
+          <div className="h-6 sm:h-7 w-px bg-slate-200/90" />
           <div className="flex items-center">
             <Image
               src="/logos/naac-logo.png"
               alt="NAAC A+ CGPA: 3.44"
               width={120}
               height={48}
-              className="h-6 sm:h-8 md:h-9 w-auto object-contain"
+              className="h-6 sm:h-7 md:h-8 w-auto object-contain"
               priority
             />
+          </div>
+          <div className="h-6 sm:h-7 w-px bg-slate-200/90" />
+          <div className="flex items-center">
+            <div className="w-7 h-7 sm:w-9 sm:h-9 rounded-full relative overflow-hidden shadow-xs border border-amber-500/20 shrink-0">
+              <Image
+                src="/logos/core-logo.png"
+                alt="CORE Logo"
+                fill
+                sizes="36px"
+                className="object-contain"
+                priority
+              />
+            </div>
           </div>
         </div>
 
