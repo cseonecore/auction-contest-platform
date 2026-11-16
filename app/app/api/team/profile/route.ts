@@ -30,10 +30,12 @@ export async function GET(request: Request) {
         setAll(cookiesToSet: Array<{ name: string; value: string; options?: Record<string, unknown> }>) {
           try {
             cookiesToSet.forEach(({ name, value, options }) =>
-              cookiesStore.set(name, value, options as any)
+              cookieStore.set(name, value, options as any)
             );
           } catch {
             // The `setAll` method was called from a Server Component.
+            // This can be ignored if middleware or server-side revalidation
+            // is managing the cookies.
           }
         },
       },
@@ -83,10 +85,12 @@ export async function GET(request: Request) {
       }
     } else {
       // Fetch team by name - use RLS to find user's team
+      // Ensure teamName is not null for ilike
+      const safeTeamName = teamName || "";
       const { data: teamData, error: teamErr } = await supabase
         .from("teams")
         .select("id, name, captain_id, locked, created_at")
-        .ilike("name", teamName)
+        .ilike("name", safeTeamName)
         .maybeSingle();
 
       if (teamErr || !teamData) {

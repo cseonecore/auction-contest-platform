@@ -104,7 +104,6 @@ async function createAuthUserWithRole(
     email,
     password,
     options: {
-      emailConfirm: false, // Registration is instant, no email confirm required
       data: {
         usn: email.split("@")[0], // Store USN in user metadata
         role: role, // Store role in user metadata

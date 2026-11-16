@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { getServerDb } from "@/lib/serverDb";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
@@ -41,10 +40,12 @@ export async function POST(request: Request) {
         setAll(cookiesToSet: Array<{ name: string; value: string; options?: Record<string, unknown> }>) {
           try {
             cookiesToSet.forEach(({ name, value, options }) =>
-              cookiesStore.set(name, value, options as any)
+              cookieStore.set(name, value, options as any)
             );
           } catch {
             // The `setAll` method was called from a Server Component.
+            // This can be ignored if middleware or server-side revalidation
+            // is managing the cookies.
           }
         },
       },
@@ -94,35 +95,8 @@ export async function POST(request: Request) {
     // Called AFTER successful login to establish the new active session
     await supabase.rpc("mark_session_active");
 
-    // 4. Set the session cookies for the server client
-    if (authData.session) {
-      cookieStore.setAll([
-        {
-          name: "sb:token",
-          value: authData.session.access_token,
-          options: {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: "lax",
-            path: "/",
-            maxAge: authData.session.expires_in,
-          },
-        },
-        {
-          name: "sb:refreshToken",
-          value: authData.session.refresh_token || "",
-          options: {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: "lax",
-            path: "/",
-            maxAge: authData.session.expires_in,
-          },
-        },
-      ]);
-    }
-
-    // 5. Get the user details to check password change status
+    // 4. Get the user details to check password change status
+    // The supabase client automatically sets cookies via the setAll callback above
     const { data: user, error: userError } = await supabase.auth.getUser();
 
     if (userError || !user.user) {
@@ -145,31 +119,13 @@ export async function POST(request: Request) {
       );
     }
 
-    // 6. Check if the password needs to be changed (initial login)
+    // 5. Check if the password needs to be changed (initial login)
     // We check the user's app_metadata for password change status
     const userMetadata = user.user.app_metadata || {};
     const hasChangedPassword =
       userMetadata.password_changed === true || userMetadata.onboarding_complete === true;
 
-    if (!hasChangedPassword) {
-      // This is the captain's first login with the initial password
-      // Update the user's app_metadata to mark onboarding as in progress
-      try {
-        await supabase.auth.admin.updateUserById(authUserId, {
-          app_metadata: {
-            ...userMetadata,
-            initial_password: `${body.teamName || cleanTeamName}${
-              captainUsn.slice(-3)
-            }`, // For reference only
-            onboarding_complete: false,
-          },
-        });
-      } catch (metaErr) {
-        console.warn("[Login API] Could not update user metadata:", metaErr);
-      }
-    }
-
-    // 7. Fetch the team using the RLS-safe approach
+    // 6. Fetch the team using the RLS-safe approach
     const { data: initialTeam, error: teamErr } = await supabase
       .from("teams")
       .select("id, name, captain_id, locked, created_at")
@@ -192,7 +148,7 @@ export async function POST(request: Request) {
 
     const team = initialTeam;
 
-    // 8. Fetch all members of this team
+    // 7. Fetch all members of this team
     const { data: members, error: memErr } = await supabase
       .from("members")
       .select("id, name, email, college, created_at")
@@ -206,7 +162,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // 9. Identify the Captain of this team
+    // 8. Identify the Captain of this team
     let captain = null;
     if (team.captain_id) {
       captain = members.find((m) => m.id === team.captain_id);
@@ -218,7 +174,7 @@ export async function POST(request: Request) {
       ) || members[0];
     }
 
-    // 10. Verify the captain's email matches the authenticated user
+    // 9. Verify the captain's email matches the authenticated user
     const expectedCaptainEmail = `${captainUsn.toLowerCase()}@mite.ac.in`;
     const isCaptainMatch =
       captain?.email && captain.email.toLowerCase() === expectedCaptainEmail;
@@ -232,9 +188,9 @@ export async function POST(request: Request) {
       );
     }
 
-    // 11. Successful login - return team data
+    // 10. Successful login - return team data
     // Include onboarding_required flag if password hasn't been changed
-    const response = {
+    const response: Record<string, unknown> = {
       success: true,
       team: {
         id: team.id,
