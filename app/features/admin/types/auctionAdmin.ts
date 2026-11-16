@@ -18,6 +18,8 @@ import type {
   OpenSlotResult,
   CloseSlotResult,
   SkipSlotResult,
+  ResetAuctionResult,
+  CreateAuctionTopicResult,
   SlotStatus,
   AuctionRound,
 } from '@/types/auction';
@@ -35,6 +37,8 @@ export type {
   OpenSlotResult,
   CloseSlotResult,
   SkipSlotResult,
+  ResetAuctionResult,
+  CreateAuctionTopicResult,
   SlotStatus,
   AuctionRound,
 };
@@ -194,8 +198,17 @@ export interface AuctionActionFeedback {
 }
 
 export interface ActionInProgressState {
-  slotId: string;
-  action: 'open' | 'close' | 'skip';
+  slotId?: string;
+  action: 'open' | 'close' | 'skip' | 'reset' | 'add_topic';
+}
+
+export interface CreateTopicFormValues {
+  title: string;
+  description: string;
+  level: 'easy' | 'hard';
+  starting_bid: number;
+  criterion?: string;
+  slots_count?: number;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -260,9 +273,11 @@ export interface UseAdminAuctionReturn {
   setSelectedSlotId: (slotId: string | null) => void;
 
   // Actions with Concurrency Guards
-  handleOpenSlot: (slotId: string) => Promise<boolean>;
+  handleOpenSlot: (slotId: string, startingBid?: number) => Promise<boolean>;
   handleCloseSlot: (slotId: string) => Promise<boolean>;
   handleSkipSlot: (slotId: string) => Promise<boolean>;
+  handleResetAuction: () => Promise<boolean>;
+  handleCreateTopic: (values: CreateTopicFormValues) => Promise<boolean>;
   clearFeedback: () => void;
   refreshAll: () => Promise<void>;
 }

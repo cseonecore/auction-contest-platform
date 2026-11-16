@@ -23,6 +23,9 @@ import type {
   OpenSlotResult,
   CloseSlotResult,
   SkipSlotResult,
+  ResetAuctionResult,
+  CreateAuctionTopicResult,
+  CreateTopicFormValues,
   TopicRow,
   SlotRow,
   BidRow,
@@ -41,6 +44,7 @@ interface RawSlotQueryResult {
   round: 1 | 2;
   status: 'pending' | 'open' | 'sold' | 'skipped';
   current_bid: number;
+  min_bid?: number;
   leader_team_id: string | null;
   end_time: string | null;
   winner_team_id: string | null;
@@ -126,6 +130,7 @@ export async function fetchAllSlotsWithDetails(): Promise<ServiceResult<AdminSlo
         round,
         status,
         current_bid,
+        min_bid,
         leader_team_id,
         end_time,
         winner_team_id,
@@ -159,6 +164,7 @@ export async function fetchAllSlotsWithDetails(): Promise<ServiceResult<AdminSlo
         round: raw.round,
         status: raw.status,
         current_bid: raw.current_bid,
+        min_bid: raw.min_bid ?? 10,
         leader_team_id: raw.leader_team_id,
         end_time: raw.end_time,
         winner_team_id: raw.winner_team_id,
@@ -202,6 +208,7 @@ export async function fetchSlotById(
         round,
         status,
         current_bid,
+        min_bid,
         leader_team_id,
         end_time,
         winner_team_id,
@@ -234,6 +241,7 @@ export async function fetchSlotById(
       round: raw.round,
       status: raw.status,
       current_bid: raw.current_bid,
+      min_bid: raw.min_bid ?? 10,
       leader_team_id: raw.leader_team_id,
       end_time: raw.end_time,
       winner_team_id: raw.winner_team_id,
@@ -587,34 +595,134 @@ export async function fetchAuctionOverviewStats(): Promise<
 
 /**
  * Admin action to open a pending slot with a 10-second opening window.
- * Calls RPC `open_slot(p_slot_id: uuid)`.
+ * Accepts optional starting bid points (default 10).
+ * Calls RPC `open_slot(p_slot_id: uuid, p_starting_bid: integer)`.
  */
 export async function openSlot(
-  slotId: string
+  slotId: string,
+  startingBid: number = 10
 ): Promise<ServiceResult<OpenSlotResult>> {
   try {
     if (!slotId || typeof slotId !== 'string') {
       return { success: false, error: 'Valid slot ID is required to open a slot' };
     }
 
-    const { data, error } = await supabase.rpc('open_slot', {
+    if (typeof startingBid !== 'number' || isNaN(startingBid) || startingBid <= 0) {
+      return { success: false, error: 'Starting bid points must be a positive integer.' };
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let res = await (supabase.rpc as any)('open_slot', {
       p_slot_id: slotId,
+      p_starting_bid: Math.floor(startingBid),
     });
 
-    if (error) {
+    // Backward compatibility fallback if database hasn't had migration 009 applied
+    if (res.error && (res.error.message.includes('p_starting_bid') || res.error.message.includes('argument'))) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      res = await (supabase.rpc as any)('open_slot', {
+        p_slot_id: slotId,
+      });
+    }
+
+    if (res.error) {
       return {
         success: false,
-        error: error.message || 'Failed to open auction slot',
+        error: res.error.message || 'Failed to open auction slot',
       };
     }
 
     return {
       success: true,
-      data: data as unknown as OpenSlotResult,
+      data: res.data as unknown as OpenSlotResult,
     };
   } catch (err) {
     const message =
       err instanceof Error ? err.message : 'Unexpected error opening auction slot';
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Admin action to perform an atomic full reset of the auction.
+ * Resets all slots to pending, deletes all bids, and restores team wallets.
+ * Calls RPC `reset_auction()`.
+ */
+export async function resetAuction(): Promise<ServiceResult<ResetAuctionResult>> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase.rpc as any)('reset_auction');
+
+    if (error) {
+      return {
+        success: false,
+        error: error.message || 'Failed to reset auction',
+      };
+    }
+
+    return {
+      success: true,
+      data: data as unknown as ResetAuctionResult,
+    };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : 'Unexpected error during auction reset';
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Admin action to create a new auction topic and its associated slot(s) atomically.
+ * Calls RPC `create_auction_topic(...)`.
+ */
+export async function createAuctionTopic(
+  values: CreateTopicFormValues
+): Promise<ServiceResult<CreateAuctionTopicResult>> {
+  try {
+    if (!values.title || !values.title.trim()) {
+      return { success: false, error: 'Topic title is required.' };
+    }
+    if (values.level !== 'easy' && values.level !== 'hard') {
+      return { success: false, error: 'Topic level must be either easy (Round 1) or hard (Round 2).' };
+    }
+    const startingBid = Number(values.starting_bid) || 10;
+    if (startingBid <= 0) {
+      return { success: false, error: 'Starting bid points must be a positive integer.' };
+    }
+
+    let criterionJson: unknown = null;
+    if (values.criterion && values.criterion.trim()) {
+      try {
+        criterionJson = JSON.parse(values.criterion.trim());
+      } catch {
+        criterionJson = { focus: values.criterion.trim() };
+      }
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase.rpc as any)('create_auction_topic', {
+      p_title: values.title.trim(),
+      p_description: values.description ? values.description.trim() : null,
+      p_level: values.level,
+      p_starting_bid: Math.floor(startingBid),
+      p_criterion: criterionJson,
+      p_slots_count: values.slots_count || 1,
+    });
+
+    if (error) {
+      return {
+        success: false,
+        error: error.message || 'Failed to create auction topic',
+      };
+    }
+
+    return {
+      success: true,
+      data: data as unknown as CreateAuctionTopicResult,
+    };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : 'Unexpected error creating auction topic';
     return { success: false, error: message };
   }
 }

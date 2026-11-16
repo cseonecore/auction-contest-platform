@@ -32,9 +32,12 @@ import {
   type AuctionActionModalState,
   type AuctionActionType,
 } from '@/features/admin/components/auction/AuctionActionModal';
+import { AuctionResetModal } from '@/features/admin/components/auction/AuctionResetModal';
+import { AddTopicModal } from '@/features/admin/components/auction/AddTopicModal';
 import type {
   AdminSlotWithDetails,
   AuctionTabKey,
+  CreateTopicFormValues,
 } from '@/features/admin/types/auctionAdmin';
 
 function AdminAuctionInner() {
@@ -75,6 +78,8 @@ function AdminAuctionInner() {
     handleOpenSlot,
     handleCloseSlot,
     handleSkipSlot,
+    handleResetAuction,
+    handleCreateTopic,
     clearFeedback,
     refreshAll,
   } = useAdminAuction({
@@ -85,6 +90,8 @@ function AdminAuctionInner() {
   // Modal States
   const [inspectModalSlot, setInspectModalSlot] = useState<AdminSlotWithDetails | null>(null);
   const [actionModalState, setActionModalState] = useState<AuctionActionModalState | null>(null);
+  const [isResetModalOpen, setIsResetModalOpen] = useState<boolean>(false);
+  const [isAddTopicModalOpen, setIsAddTopicModalOpen] = useState<boolean>(false);
   const [isExecutingAction, setIsExecutingAction] = useState<boolean>(false);
 
   // Pending slots for active controller launcher
@@ -104,14 +111,14 @@ function AdminAuctionInner() {
     []
   );
 
-  // Execute confirmed action
+  // Execute confirmed slot action (open with startingBid, close, skip)
   const handleConfirmAction = useCallback(
-    async (slotId: string, action: AuctionActionType) => {
+    async (slotId: string, action: AuctionActionType, startingBid?: number) => {
       setIsExecutingAction(true);
       try {
         let success = false;
         if (action === 'open') {
-          success = await handleOpenSlot(slotId);
+          success = await handleOpenSlot(slotId, startingBid);
         } else if (action === 'close') {
           success = await handleCloseSlot(slotId);
         } else if (action === 'skip') {
@@ -128,6 +135,39 @@ function AdminAuctionInner() {
       }
     },
     [handleOpenSlot, handleCloseSlot, handleSkipSlot]
+  );
+
+  // Execute full auction reset (Feature 2)
+  const handleConfirmReset = useCallback(async () => {
+    setIsExecutingAction(true);
+    try {
+      const success = await handleResetAuction();
+      if (success) {
+        setIsResetModalOpen(false);
+        setActionModalState(null);
+        setInspectModalSlot(null);
+      }
+    } finally {
+      setIsExecutingAction(false);
+    }
+  }, [handleResetAuction]);
+
+  // Execute add topic creation (Feature 3)
+  const handleConfirmCreateTopic = useCallback(
+    async (values: CreateTopicFormValues): Promise<boolean> => {
+      setIsExecutingAction(true);
+      try {
+        const success = await handleCreateTopic(values);
+        if (success) {
+          setIsAddTopicModalOpen(false);
+          return true;
+        }
+        return false;
+      } finally {
+        setIsExecutingAction(false);
+      }
+    },
+    [handleCreateTopic]
   );
 
   return (
@@ -424,6 +464,8 @@ function AdminAuctionInner() {
               onSelectSlot={(slot) => setInspectModalSlot(slot)}
               onRequestAction={handleRequestAction}
               isActionInProgress={isExecutingAction}
+              onRequestReset={() => setIsResetModalOpen(true)}
+              onRequestAddTopic={() => setIsAddTopicModalOpen(true)}
             />
           </div>
         </div>
@@ -436,6 +478,8 @@ function AdminAuctionInner() {
           onSelectSlot={(slot) => setInspectModalSlot(slot)}
           onRequestAction={handleRequestAction}
           isActionInProgress={isExecutingAction}
+          onRequestReset={() => setIsResetModalOpen(true)}
+          onRequestAddTopic={() => setIsAddTopicModalOpen(true)}
         />
       )}
 
@@ -446,6 +490,7 @@ function AdminAuctionInner() {
           recentBids={recentBids}
           onRequestAction={handleRequestAction}
           isActionInProgress={isExecutingAction}
+          onRequestReset={() => setIsResetModalOpen(true)}
         />
       )}
 
@@ -486,6 +531,31 @@ function AdminAuctionInner() {
         onClose={() => setInspectModalSlot(null)}
         onRequestAction={handleRequestAction}
         isActionInProgress={isExecutingAction}
+      />
+
+      {/* ─────────────────────────────────────────────────────────────
+          7. Auction Reset Confirmation Modal (Feature 2)
+      ────────────────────────────────────────────────────────────── */}
+      <AuctionResetModal
+        isOpen={isResetModalOpen}
+        onClose={() => {
+          if (!isExecutingAction) setIsResetModalOpen(false);
+        }}
+        onConfirm={handleConfirmReset}
+        isExecuting={isExecutingAction}
+      />
+
+      {/* ─────────────────────────────────────────────────────────────
+          8. Add Topic Form Modal (Feature 3)
+      ────────────────────────────────────────────────────────────── */}
+      <AddTopicModal
+        isOpen={isAddTopicModalOpen}
+        onClose={() => {
+          if (!isExecutingAction) setIsAddTopicModalOpen(false);
+        }}
+        onConfirm={handleConfirmCreateTopic}
+        existingSlots={slots}
+        isExecuting={isExecutingAction}
       />
     </div>
   );

@@ -51,6 +51,27 @@ export interface OpenSlotResult {
   slot_id: string
   status: 'open'
   end_time: string
+  starting_bid?: number
+}
+
+/** Returned by reset_auction(). */
+export interface ResetAuctionResult {
+  success: boolean
+  slots_reset: number
+  bids_deleted: number
+  wallets_reset: number
+  starting_balance: number
+}
+
+/** Returned by create_auction_topic(). */
+export interface CreateAuctionTopicResult {
+  success: boolean
+  topic_id: string
+  title: string
+  level: 'easy' | 'hard'
+  round: 1 | 2
+  starting_bid: number
+  slots: Array<{ slot_id: string; round: 1 | 2 }>
 }
 
 /** Returned by close_slot(). */
