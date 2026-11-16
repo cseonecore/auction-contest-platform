@@ -1,566 +1,395 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
-import { CheckCircle2, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, Loader2, RefreshCw, Trophy } from "lucide-react";
 import { ParticipantAuctionHeader } from "./ParticipantAuctionHeader";
 import { ParticipantBiddingPanel } from "./ParticipantBiddingPanel";
 import { LiveLeaderboardGrid } from "./LiveLeaderboardGrid";
-import { AuctionSoldModal, SoldResultData } from "./AuctionSoldModal";
-import { formatMinSec, calculateCountdown } from "../utils/countdown";
+import { AuctionSoldModal, type SoldResultData } from "./AuctionSoldModal";
+import { formatMinSec } from "../utils/countdown";
 import { getMascotSrc } from "../utils/mascot";
-import { supabase } from "@/lib/supabase";
+import { useAuction } from "../hooks/useAuction";
+import { useAuctionTimer } from "../hooks/useAuctionTimer";
 
-interface CurrentTeam {
-  id: string;
-  name: string;
-  balance: number;
-  assignedCount: number;
-  isCaptain: boolean;
-  characterIndex: number;
-}
-
-interface ActiveSlot {
-  id: string;
-  round: number;
-  status: "pending" | "open" | "sold" | "skipped";
-  current_bid: number;
-  leader_team_id: string | null;
-  end_time: string | null;
-  winner_team_id: string | null;
-  topic?: {
-    id: string;
-    level: string;
-    title: string;
-    description: string;
-    criterion?: any;
-  } | null;
-  leader_team?: {
-    id: string;
-    name: string;
-  } | null;
-  winner_team?: {
-    id: string;
-    name: string;
-  } | null;
-}
-
-interface HistoryItem {
-  slotId: string;
-  slotNumber: number;
-  status: "sold" | "skipped";
-  topicTitle: string;
-  winnerTeam?: { id: string; name: string } | null;
-  winningBid: number;
-  round: number;
-}
-
+/**
+ * Participant auction arena.
+ *
+ * Every value rendered here comes from the authoritative database
+ * state. There is no preview team, no placeholder counter and no
+ * optimistic balance mutation: the interface shows what the backend
+ * says and asks the backend to change it.
+ */
 export function ParticipantAuctionRoom() {
-  const router = useRouter();
+  const { state, identity, teamState, connection, loading, error, lastEvent, refresh, placeBid } =
+    useAuction();
 
-  // Current user's team state — null until resolved
-  const [currentTeam, setCurrentTeam] = useState<CurrentTeam | null>(null);
-  const [teamLoading, setTeamLoading] = useState(true);
+  const [soldResult, setSoldResult] = useState<SoldResultData | null>(null);
+  const [announcement, setAnnouncement] = useState<{ text: string; tone: "info" | "warning" | "success" } | null>(null);
+  const announcedRef = useRef<string | null>(null);
 
-  // Auction State
-  const [auctionStatus, setAuctionStatus] = useState<"LIVE" | "UPCOMING" | "PAUSED" | "COMPLETED">("LIVE");
-  const [activeSlot, setActiveSlot] = useState<ActiveSlot | null>(null);
-  const [activeSlotIndex, setActiveSlotIndex] = useState<number>(3);
-  const [totalSlots, setTotalSlots] = useState<number>(40);
-  const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [leaderboardTeams, setLeaderboardTeams] = useState<any[]>([]);
-  const [settings, setSettings] = useState({
-    min_bid: 10,
-    min_raise: 10,
-    opening_window_seconds: 10,
-    timer_extension_seconds: 5,
+  const activeSlot = state.active_slot;
+  const session = state.session;
+  const settings = state.settings;
+
+  const isPaused = Boolean(session?.is_paused);
+  const isLive = activeSlot?.status === "open" && !isPaused;
+
+  const countdown = useAuctionTimer({
+    endTime: activeSlot?.end_time ?? null,
+    serverTime: state.server_time,
+    running: Boolean(activeSlot?.status === "open") && !isPaused,
+    paused: isPaused,
+    pausedRemainingSeconds: activeSlot?.paused_remaining_seconds ?? 0,
+    onExpire: () => {
+      // The backend decides whether the item closed — ask it.
+      void refresh();
+    },
   });
 
-  // Timer & Countdown
-  const [secondsLeft, setSecondsLeft] = useState<number>(0);
-  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Connection & UI states
-  const [connectionStatus, setConnectionStatus] = useState<"connected" | "reconnecting" | "offline">("connected");
-  const [loading, setLoading] = useState<boolean>(true);
-  const [lastSoldResult, setLastSoldResult] = useState<SoldResultData | null>(null);
-
-  // Reference to prevent duplicate popups
-  const lastAnnouncedSlotIdRef = useRef<string | null>(null);
-
-  // 1. Resolve logged-in participant's team
-  const resolveTeam = useCallback(async () => {
-    setTeamLoading(true);
-    try {
-      let storedTeam: { id?: string; name?: string } | null = null;
-      if (typeof window !== "undefined") {
-        const raw = localStorage.getItem("b2b_logged_in_team");
-        if (raw) {
-          try {
-            storedTeam = JSON.parse(raw);
-          } catch {
-            // ignore
-          }
-        }
-      }
-
-      if (!storedTeam?.id && !storedTeam?.name) {
-        // Direct / preview access without login: default to preview participant team
-        setCurrentTeam({
-          id: "32254098-4572-472d-b75e-1dc51ebcb273",
-          name: "Team Alpha (Preview)",
-          balance: 100,
-          assignedCount: 0,
-          isCaptain: true,
-          characterIndex: 1,
-        });
-        return;
-      }
-
-      const idParam = storedTeam.id
-        ? `id=${storedTeam.id}`
-        : `name=${encodeURIComponent(storedTeam.name!)}`;
-      const res = await fetch(`/api/team/profile?${idParam}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.team) {
-          setCurrentTeam({
-            id: data.team.id,
-            name: data.team.name,
-            balance: data.team.balance ?? 100,
-            assignedCount: data.team.assignedProblems?.length ?? 0,
-            isCaptain: true,
-            characterIndex: 1,
-          });
-          return;
-        }
-      }
-
-      // If profile fetch fails, use fallback preview team instead of bouncing to login
-      setCurrentTeam({
-        id: storedTeam.id || "32254098-4572-472d-b75e-1dc51ebcb273",
-        name: storedTeam.name || "Team Alpha (Preview)",
-        balance: 100,
-        assignedCount: 0,
-        isCaptain: true,
-        characterIndex: 1,
-      });
-    } catch (err) {
-      console.warn("[Participant Auction] Team resolution error:", err);
-      // Fallback preview team
-      setCurrentTeam({
-        id: "32254098-4572-472d-b75e-1dc51ebcb273",
-        name: "Team Alpha (Preview)",
-        balance: 100,
-        assignedCount: 0,
-        isCaptain: true,
-        characterIndex: 1,
-      });
-    } finally {
-      setTeamLoading(false);
-    }
-  }, []);
-
-  // 2. Fetch Authoritative Auction State
-  const fetchAuctionState = useCallback(async () => {
-    try {
-      const res = await fetch("/api/auction/state", { cache: "no-store" });
-      if (!res.ok) throw new Error("Failed to fetch state");
-      const data = await res.json();
-
-      if (data.success) {
-        setAuctionStatus(data.auctionStatus);
-        setTotalSlots(data.totalSlots || 40);
-        setActiveSlotIndex(data.activeSlotIndex || 3);
-        setSettings(data.settings);
-        setHistory(data.history || []);
-
-        const slot = data.activeSlot as ActiveSlot | null;
-        setActiveSlot(slot);
-
-        // Check if a slot was just sold or skipped to trigger announcement
-        if (slot && (slot.status === "sold" || slot.status === "skipped")) {
-          if (lastAnnouncedSlotIdRef.current !== slot.id) {
-            lastAnnouncedSlotIdRef.current = slot.id;
-            setLastSoldResult({
-              slotNumber: data.activeSlotIndex,
-              status: slot.status,
-              topicTitle: slot.topic?.title,
-              winnerTeamName: slot.winner_team?.name || slot.leader_team?.name,
-              winnerTeamId: slot.winner_team_id || slot.leader_team_id || undefined,
-              winningBid: slot.current_bid,
-            });
-          }
-        }
-
-        setConnectionStatus("connected");
-      }
-    } catch {
-      setConnectionStatus("reconnecting");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // 3. Fetch Leaderboard for Active Slot
-  const fetchLeaderboard = useCallback(async (slotId?: string | null) => {
-    try {
-      const param = slotId ? `?slotId=${slotId}` : "";
-      const res = await fetch(`/api/auction/teams${param}`, { cache: "no-store" });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.teams) {
-          setLeaderboardTeams(data.teams);
-
-          // Update current team's balance if in list
-          if (currentTeam?.id) {
-            const match = data.teams.find((t: any) => t.id === currentTeam?.id);
-            if (match && typeof match.balance === "number") {
-              setCurrentTeam((prev) => (prev ? {
-                ...prev,
-                balance: match.balance,
-              } : null));
-            }
-          }
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }, [currentTeam]);
-
-  // Master refresh
-  const refreshAll = useCallback(() => {
-    fetchAuctionState();
-    fetchLeaderboard(activeSlot?.id);
-  }, [fetchAuctionState, fetchLeaderboard, activeSlot?.id]);
-
-  // Initial load
+  // Announce the outcome of the item that just concluded.
   useEffect(() => {
-    resolveTeam();
-    fetchAuctionState();
-  }, [resolveTeam, fetchAuctionState]);
+    if (!activeSlot) return;
+    if (activeSlot.status !== "sold" && activeSlot.status !== "skipped") return;
+    if (announcedRef.current === activeSlot.id) return;
 
-  // Sync leaderboard when active slot changes
+    announcedRef.current = activeSlot.id;
+    setSoldResult({
+      slotNumber: activeSlot.question_number ?? 0,
+      status: activeSlot.status,
+      topicTitle: activeSlot.topic?.title,
+      winnerTeamName: activeSlot.winner_team_name ?? activeSlot.leader_team_name ?? undefined,
+      winnerTeamId: activeSlot.winner_team_id ?? activeSlot.leader_team_id ?? undefined,
+      winningBid: activeSlot.current_bid,
+    });
+  }, [activeSlot]);
+
+  // Announce bonus time and eliminations from the event stream.
   useEffect(() => {
-    fetchLeaderboard(activeSlot?.id);
-  }, [activeSlot?.id, fetchLeaderboard]);
+    if (!lastEvent) return;
 
-  // 4. Timer Countdown Interval Loop
-  useEffect(() => {
-    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-
-    if (!activeSlot || activeSlot.status !== "open" || !activeSlot.end_time) {
-      if (activeSlot && activeSlot.status === "open") {
-        setSecondsLeft(84); // 1m 24s fallback
-      }
-      return;
-    }
-
-    const tick = () => {
-      const countdown = calculateCountdown(activeSlot.end_time);
-      setSecondsLeft(countdown.secondsLeft);
-
-      if (countdown.isExpired) {
-        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-        // Refresh authoritative state on expiration
-        fetchAuctionState();
-      }
-    };
-
-    tick();
-    timerIntervalRef.current = setInterval(tick, 250);
-
-    return () => {
-      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-    };
-  }, [activeSlot?.end_time, activeSlot?.status, fetchAuctionState]);
-
-  // 5. Supabase Realtime Subscriptions & Polling Fallback
-  useEffect(() => {
-    const channel = supabase
-      .channel("public-auction-room")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "slots" },
-        () => {
-          refreshAll();
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "bids" },
-        () => {
-          refreshAll();
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "wallets" },
-        () => {
-          refreshAll();
-        }
-      )
-      .subscribe((status: string) => {
-        if (status === "SUBSCRIBED") {
-          setConnectionStatus("connected");
-        } else if (status === "CHANNEL_ERROR") {
-          setConnectionStatus("reconnecting");
-        }
+    if (lastEvent.event_type === "bonus_time_granted") {
+      const teamName = String(lastEvent.payload.team_name ?? "A team");
+      const seconds = Number(lastEvent.payload.bonus_seconds ?? 0);
+      setAnnouncement({
+        text: `Bonus time awarded to ${teamName} (+${seconds}s)`,
+        tone: "success",
       });
-
-    // 2-second heartbeat polling fallback for bulletproof synchronization
-    const heartbeat = setInterval(() => {
-      fetchAuctionState();
-      fetchLeaderboard(activeSlot?.id);
-    }, 2000);
-
-    return () => {
-      supabase.removeChannel(channel);
-      clearInterval(heartbeat);
-    };
-  }, [refreshAll, activeSlot?.id, fetchAuctionState, fetchLeaderboard]);
-
-  // Handle Bid Placement
-  const handlePlaceBid = async (amount: number): Promise<{ success: boolean; error?: string }> => {
-    if (!activeSlot || !currentTeam) return { success: false, error: "No active slot or not logged in." };
-
-    try {
-      const res = await fetch("/api/auction/bid", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          slotId: activeSlot.id,
-          amount,
-          teamId: currentTeam.id,
-          teamName: currentTeam.name,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        return { success: false, error: data.error || "Failed to place bid" };
-      }
-
-      // Optimistically update wallet and slot
-      setCurrentTeam((prev) => (prev ? {
-        ...prev,
-        balance: data.data?.wallet_balance ?? prev.balance,
-      } : null));
-
-      // Immediate refresh
-      refreshAll();
-      return { success: true };
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Network error";
-      return { success: false, error: msg };
+    } else if (lastEvent.event_type === "team_eliminated") {
+      const teamName = String(lastEvent.payload.team_name ?? "A team");
+      setAnnouncement({ text: `${teamName} has been eliminated`, tone: "warning" });
+    } else if (
+      lastEvent.event_type === "highest_bid_changed" &&
+      lastEvent.team_id &&
+      lastEvent.team_id !== identity.teamId &&
+      identity.teamId
+    ) {
+      const leader = String(lastEvent.payload.leader_name ?? "Another team");
+      setAnnouncement({ text: `Outbid — ${leader} is now leading`, tone: "warning" });
     }
-  };
+  }, [lastEvent, identity.teamId]);
 
-  if (teamLoading || !currentTeam) {
+  const handlePlaceBid = useCallback(
+    async (amount: number): Promise<{ success: boolean; error?: string }> => {
+      if (!activeSlot) {
+        return { success: false, error: "There is no live auction item right now." };
+      }
+      return placeBid(activeSlot.id, amount);
+    },
+    [activeSlot, placeBid]
+  );
+
+  const teams = useMemo(
+    () =>
+      state.teams.map((team, index) => ({
+        id: team.id,
+        name: team.name,
+        balance: team.balance,
+        currentBid: team.current_bid,
+        eliminated: team.eliminated,
+        characterIndex: (index % 10) + 1,
+      })),
+    [state.teams]
+  );
+
+  const myTeam = useMemo(
+    () => teams.find((team) => team.id === identity.teamId) ?? null,
+    [teams, identity.teamId]
+  );
+
+  const myElimination = useMemo(
+    () => state.eliminations.find((el) => el.team_id === identity.teamId) ?? null,
+    [state.eliminations, identity.teamId]
+  );
+
+  const wonRounds = useMemo(() => {
+    const rounds = new Set<number>();
+    (teamState?.won_slots ?? []).forEach((slot) => rounds.add(slot.round));
+    return rounds;
+  }, [teamState]);
+
+  const hasWonRound = activeSlot ? wonRounds.has(activeSlot.round) : false;
+  const isLeader = activeSlot?.leader_team_id === identity.teamId;
+
+  if (loading) {
     return (
       <div className="min-h-screen bg-[#111215] text-zinc-100 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="w-8 h-8 animate-spin text-[#fe5102]" />
-          <p className="text-xs text-zinc-400">Loading auction room...</p>
+          <p className="text-xs text-zinc-400">Connecting to the live auction...</p>
         </div>
       </div>
     );
   }
 
-  const currentMascotSrc = getMascotSrc(currentTeam.id, currentTeam.characterIndex);
-  const timeFormatted = formatMinSec(secondsLeft);
-  const isLeader = activeSlot?.leader_team_id === currentTeam.id;
-
   return (
     <div className="min-h-screen bg-[#111215] text-zinc-100 flex flex-col font-sans selection:bg-[#ff5500] selection:text-white">
-      {/* 1. Top Header */}
-      <ParticipantAuctionHeader connectionStatus={connectionStatus} />
+      <ParticipantAuctionHeader
+        connectionStatus={
+          connection === "connected"
+            ? "connected"
+            : connection === "offline"
+              ? "offline"
+              : "reconnecting"
+        }
+      />
 
-      {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+        {error && (
+          <div className="mb-5 p-4 rounded-xl border border-red-500/40 bg-red-950/40 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2 text-xs text-red-300">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-red-200 hover:text-white"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> Retry
+            </button>
+          </div>
+        )}
+
+        {announcement && (
+          <div
+            className={`mb-5 px-4 py-3 rounded-xl border text-xs font-semibold flex items-center gap-2 ${
+              announcement.tone === "success"
+                ? "bg-emerald-950/50 border-emerald-500/40 text-emerald-300"
+                : announcement.tone === "warning"
+                  ? "bg-amber-950/50 border-amber-500/40 text-amber-200"
+                  : "bg-zinc-900/70 border-zinc-800 text-zinc-300"
+            }`}
+          >
+            <Trophy className="w-4 h-4 shrink-0" />
+            <span>{announcement.text}</span>
+            <button
+              type="button"
+              onClick={() => setAnnouncement(null)}
+              className="ml-auto text-sm opacity-60 hover:opacity-100"
+              aria-label="Dismiss announcement"
+            >
+              &times;
+            </button>
+          </div>
+        )}
+
+        {myElimination && (
+          <div className="mb-5 px-4 py-4 rounded-xl border border-rose-500/40 bg-rose-950/40">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+              <div className="text-xs text-rose-200">
+                <p className="font-bold uppercase tracking-wider">Your team has been eliminated</p>
+                <p className="mt-1 text-rose-300/90">{myElimination.reason}</p>
+                <p className="mt-1 text-[11px] text-rose-300/60">
+                  Eliminated on{" "}
+                  {new Date(myElimination.eliminated_at).toLocaleString()}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* ─────────────────────────────────────────────────────────────
-              LEFT PANEL (Col 1 to 5) - Strictly Matching Figma Screenshot 3
-             ───────────────────────────────────────────────────────────── */}
+          {/* ── LEFT PANEL ─────────────────────────────────────── */}
           <div className="lg:col-span-5 space-y-5">
-            {/* Auction Status Pill */}
             <div className="flex items-center gap-2 text-sm text-zinc-400 font-medium">
               <span>Auction Status</span>
               <span
                 className={`text-xs px-2.5 py-0.5 rounded-full font-bold flex items-center gap-1.5 ${
-                  auctionStatus === "LIVE"
+                  isLive
                     ? "bg-[#064e3b]/80 border border-emerald-500/40 text-emerald-300"
-                    : auctionStatus === "PAUSED"
-                    ? "bg-amber-950/80 border border-amber-500/40 text-amber-300"
-                    : "bg-zinc-800 border border-zinc-700 text-zinc-400"
+                    : isPaused
+                      ? "bg-amber-950/80 border border-amber-500/40 text-amber-300"
+                      : "bg-zinc-800 border border-zinc-700 text-zinc-400"
                 }`}
               >
                 <span
                   className={`w-1.5 h-1.5 rounded-full ${
-                    auctionStatus === "LIVE"
+                    isLive
                       ? "bg-emerald-400 animate-pulse"
-                      : auctionStatus === "PAUSED"
-                      ? "bg-amber-400"
-                      : "bg-zinc-400"
+                      : isPaused
+                        ? "bg-amber-400"
+                        : "bg-zinc-400"
                   }`}
                 />
-                <span className="capitalize">• {auctionStatus.toLowerCase()}</span>
+                <span className="capitalize">
+                  {isPaused ? "Paused" : isLive ? "Live" : session?.status === "completed" ? "Completed" : "Upcoming"}
+                </span>
               </span>
             </div>
 
-            {/* Current Team Profile Card & Small Countdown Box (Matching Figma Image 3) */}
             <div className="flex items-center gap-3">
-              {/* Team Profile Box */}
               <div className="flex-1 bg-[#1a1b1f] border border-zinc-800/80 rounded-2xl p-3 sm:p-4 flex items-center gap-3 shadow-xl">
-                {/* Mascot Avatar */}
                 <div className="w-13 h-13 rounded-full bg-orange-500/20 border border-orange-500/40 p-1 flex items-center justify-center shrink-0 overflow-hidden">
                   <Image
-                    src={currentMascotSrc}
-                    alt={currentTeam.name}
+                    src={getMascotSrc(myTeam?.id ?? identity.teamId ?? undefined, myTeam?.characterIndex ?? 1)}
+                    alt={myTeam?.name ?? "Your team"}
                     width={46}
                     height={46}
                     className="object-contain"
                   />
                 </div>
 
-                {/* Team Info & Badges */}
                 <div className="overflow-hidden">
                   <div className="text-white font-bold text-base sm:text-lg flex items-center gap-1.5 truncate">
-                    <span>{currentTeam.name}</span>
-                    <span className="w-4 h-4 rounded-full bg-sky-500 text-white flex items-center justify-center text-[10px] font-black shrink-0">
-                      ✓
-                    </span>
+                    <span>{myTeam?.name ?? identity.teamName ?? "Not registered"}</span>
+                    {myTeam && (
+                      <span className="w-4 h-4 rounded-full bg-sky-500 text-white flex items-center justify-center text-[10px] font-black shrink-0">
+                        ✓
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                     <span className="bg-[#d1fae5] text-[#065f46] text-[10px] sm:text-xs font-black px-2.5 py-0.5 rounded-full leading-tight">
-                      Coin Balance : {currentTeam.balance}
+                      Coin Balance : {myTeam?.balance ?? teamState?.balance ?? 0}
                     </span>
                     <span className="bg-[#ffedd5] text-[#9a3412] text-[10px] sm:text-xs font-black px-2.5 py-0.5 rounded-full leading-tight">
-                      Problem Assigned : {currentTeam.assignedCount}
+                      Problem Assigned : {teamState?.won_slots?.length ?? 0}
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* Small "Auction Ends In" Box (Right beside Team Info in Screenshot 3) */}
               <div className="bg-[#fef3c7] border border-amber-300 rounded-2xl p-2.5 sm:p-3.5 text-center shadow-md min-w-[130px] sm:min-w-[150px] shrink-0">
                 <div className="text-[#92400e] text-[10px] sm:text-xs font-bold tracking-wide">
-                  Auction Ends In
+                  {isPaused ? "Paused" : "Auction Ends In"}
                 </div>
                 <div className="text-[#78350f] font-black text-base sm:text-xl font-mono tracking-tight mt-0.5">
-                  {timeFormatted}
+                  {isPaused
+                    ? formatMinSec(countdown.secondsLeft)
+                    : activeSlot?.status === "open"
+                      ? formatMinSec(countdown.secondsLeft)
+                      : "--:--"}
                 </div>
               </div>
             </div>
 
-            {/* Slot Results History (Real-Time Slot Results matching Screenshot 3) */}
-            <div className="space-y-1.5 text-xs text-zinc-300 pl-1">
-              {history.length === 0 ? (
-                <div className="text-[11px] text-zinc-500 italic py-1">
-                  Slot results will appear here in real time as problems are sold or passed.
-                </div>
-              ) : (
-                history.slice(0, 4).map((item) => {
-                  const isSold = item.status === "sold";
-                  const itemMascot = getMascotSrc(item.winnerTeam?.id || item.winnerTeam?.name);
-                  return (
-                    <div key={item.slotId} className="flex items-center gap-2 truncate">
-                      <span>Problem {item.slotNumber}</span>
-                      <span className={isSold ? "text-emerald-400 font-semibold" : "text-zinc-500"}>
-                        {isSold ? "sold to" : "unsold"}
-                      </span>
-                      {isSold && item.winnerTeam && (
-                        <div className="inline-flex items-center gap-1.5 bg-[#15803d] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                          <div className="w-3.5 h-3.5 rounded-full overflow-hidden shrink-0">
-                            <Image
-                              src={itemMascot}
-                              alt={item.winnerTeam.name}
-                              width={14}
-                              height={14}
-                              className="object-contain"
-                            />
+            {state.events.length > 0 && (
+              <div className="space-y-1.5 text-xs text-zinc-300 pl-1">
+                {state.events
+                  .filter((event) => event.event_type === "auction_finalized")
+                  .slice(0, 4)
+                  .map((event) => {
+                    const payload = event.payload as {
+                      status?: string;
+                      slot_id?: string;
+                      winner_name?: string;
+                      winning_bid?: number;
+                    };
+                    const sold = payload.status === "sold";
+                    return (
+                      <div key={event.id} className="flex items-center gap-2 truncate">
+                        <span>Problem {payload.slot_id ? String(payload.slot_id).slice(0, 6) : ""}</span>
+                        <span className={sold ? "text-emerald-400 font-semibold" : "text-zinc-500"}>
+                          {sold ? "sold to" : "unsold"}
+                        </span>
+                        {sold && payload.winner_name && (
+                          <div className="inline-flex items-center gap-1.5 bg-[#15803d] text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                            <span className="truncate max-w-[110px]">{payload.winner_name}</span>
+                            <span className="font-mono">{payload.winning_bid}</span>
                           </div>
-                          <span className="truncate max-w-[80px]">{item.winnerTeam.name}</span>
-                          <span className="font-mono">{item.winningBid}</span>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </div>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
 
-            {/* Bidding Controls (The 4 Large Interactive Square Buttons) */}
             <div className="pt-2">
               <ParticipantBiddingPanel
                 slotId={activeSlot?.id ?? null}
                 slotStatus={activeSlot?.status ?? "pending"}
                 currentBid={activeSlot?.current_bid ?? 0}
-                leadingTeamName={activeSlot?.leader_team?.name ?? null}
+                leadingTeamName={activeSlot?.leader_team_name ?? null}
                 isLeader={isLeader}
-                walletBalance={currentTeam.balance}
-                hasWonRound={false}
+                walletBalance={myTeam?.balance ?? teamState?.balance ?? 0}
+                hasWonRound={hasWonRound}
                 minBid={settings.min_bid}
                 minRaise={settings.min_raise}
+                isCaptain={identity.isCaptain}
+                eliminated={Boolean(myElimination)}
+                paused={isPaused}
                 onBidSubmit={handlePlaceBid}
               />
             </div>
           </div>
 
-          {/* ─────────────────────────────────────────────────────────────
-              RIGHT PANEL (Col 6 to 12) - Problem Statement + Leaderboard
-             ───────────────────────────────────────────────────────────── */}
+          {/* ── RIGHT PANEL ────────────────────────────────────── */}
           <div className="lg:col-span-7 space-y-4">
-            {/* Problem Statement Card matching Figma Image 1 & 3 */}
             <div className="bg-[#1a1b1f] border border-zinc-800/80 rounded-2xl p-5 sm:p-6 shadow-xl relative select-none">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
                     {activeSlot?.topic?.title
-                      ? `Problem Statement ${activeSlotIndex}: ${activeSlot.topic.title}`
-                      : `Problem Statment${activeSlotIndex}`}
+                      ? `Problem Statement ${activeSlot.question_number ?? ""}: ${activeSlot.topic.title}`
+                      : "Problem Statement"}
                   </h2>
                   <div className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mt-1.5">
-                    {activeSlot?.topic?.level ? `Level: ${activeSlot.topic.level} Topic` : "Problem statement"}
+                    {activeSlot?.topic?.level
+                      ? `Level: ${activeSlot.topic.level} Topic`
+                      : "Awaiting the next problem statement"}
                   </div>
                 </div>
 
-                {/* 3/40 Pill Badge on top-right */}
-                <div className="bg-[#bfdbfe] text-[#1e40af] text-xs sm:text-sm font-black px-3 py-1 rounded-full shrink-0 shadow-sm">
-                  {activeSlotIndex}/{totalSlots}
-                </div>
+                {activeSlot?.question_number != null && (
+                  <div className="bg-[#bfdbfe] text-[#1e40af] text-xs sm:text-sm font-black px-3 py-1 rounded-full shrink-0 shadow-sm">
+                    {activeSlot.question_number}
+                    {state.total_items ? `/${state.total_items}` : ""}
+                  </div>
+                )}
               </div>
 
-              {/* Description Body */}
               <p className="text-xs sm:text-sm text-zinc-300 mt-2.5 leading-relaxed">
-                {activeSlot?.topic?.description || "Description in detail"}
+                {activeSlot?.topic?.description ||
+                  "The organiser has not published a problem statement for this item yet."}
               </p>
 
-              {activeSlot?.topic?.criterion && (
+              {activeSlot?.topic?.criterion != null && (
                 <div className="mt-3 text-[11px] text-zinc-400 border-t border-zinc-800/80 pt-2">
                   <span className="font-semibold text-zinc-300">Evaluation Criteria: </span>
                   {typeof activeSlot.topic.criterion === "object"
                     ? JSON.stringify(activeSlot.topic.criterion)
-                    : activeSlot.topic.criterion}
+                    : String(activeSlot.topic.criterion)}
                 </div>
               )}
             </div>
 
-            {/* Prominent Wide Countdown Banner (Matching Figma Image 1) */}
             <div className="w-full bg-[#fef08a] border border-amber-300 rounded-2xl py-3 px-6 text-center shadow-lg">
               <div className="text-[#78350f] font-black text-3xl sm:text-4xl font-mono tracking-tight">
-                {timeFormatted}
+                {activeSlot?.status === "open"
+                  ? formatMinSec(countdown.secondsLeft)
+                  : isPaused
+                    ? "PAUSED"
+                    : "--:--"}
               </div>
             </div>
 
-            {/* Live Leaderboard Grid (4 columns, colored ranking capsules) */}
             <div className="pt-2">
               <LiveLeaderboardGrid
-                teams={leaderboardTeams}
-                currentTeamId={currentTeam.id}
+                teams={teams}
+                currentTeamId={identity.teamId}
                 loading={loading}
               />
             </div>
@@ -568,11 +397,7 @@ export function ParticipantAuctionRoom() {
         </div>
       </main>
 
-      {/* SOLD TO / UNSOLD Result Announcement Popup (Image 2 & 4) */}
-      <AuctionSoldModal
-        result={lastSoldResult}
-        onClose={() => setLastSoldResult(null)}
-      />
+      <AuctionSoldModal result={soldResult} onClose={() => setSoldResult(null)} />
     </div>
   );
 }

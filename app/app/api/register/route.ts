@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-import { getServerDb } from "@/lib/serverDb";
+import { getServiceDb } from "@/lib/serverDb";
 
 const DEFAULT_MAX_TEAMS = 60;
 const DEFAULT_REGISTRATION_OPEN = true;
@@ -161,7 +161,7 @@ function generateInitialPassword(teamName: string, usn: string): string {
 
 export async function GET() {
   try {
-    const db = getServerDb();
+    const db = getServiceDb();
     const [{ isOpen, maxTeams }, countRes] = await Promise.all([
       getRegistrationSettings(db),
       db.from("teams").select("*", { count: "exact", head: true }),
@@ -257,7 +257,7 @@ export async function POST(request: Request) {
     const initialPassword = generateInitialPassword(cleanTeamName, cleanCaptainUsn);
 
     // 2. Acquire server database client
-    const db = getServerDb();
+    const db = getServiceDb();
 
     // 3. Create Supabase Admin client for Auth user creation
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://qqbuauryvhgssmmxiiuh.supabase.co";
@@ -354,10 +354,14 @@ export async function POST(request: Request) {
 
     console.log(`[Register API] Created team: ${teamId}`);
 
-    // 7. Insert Captain into `members` table
+    // 7. Insert Captain into `members` table.
+    // The member id MUST be the Auth user id: the identity chain
+    // auth.users.id == members.id == teams.captain_id is what
+    // current_team_id(), is_team_captain() and place_bid() rely on.
     const { data: captainData, error: captainError } = await db
       .from("members")
       .insert({
+        id: authUserId,
         team_id: teamId,
         name: captain.name.trim(),
         email: captainEmail,

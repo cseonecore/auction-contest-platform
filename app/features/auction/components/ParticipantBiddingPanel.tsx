@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { Loader2 } from "lucide-react";
 import { BidConfirmationModal } from "./BidConfirmationModal";
+import { validateBid } from "../utils/bid-validation";
 
 interface ParticipantBiddingPanelProps {
   slotId: string | null;
@@ -14,19 +15,25 @@ interface ParticipantBiddingPanelProps {
   hasWonRound: boolean;
   minBid?: number;
   minRaise?: number;
+  isCaptain?: boolean;
+  eliminated?: boolean;
+  paused?: boolean;
   onBidSubmit: (amount: number) => Promise<{ success: boolean; error?: string }>;
 }
 
 export function ParticipantBiddingPanel({
-  slotId,
+  slotId: _slotId,
   slotStatus,
   currentBid,
-  leadingTeamName,
+  leadingTeamName: _leadingTeamName,
   isLeader,
   walletBalance,
   hasWonRound,
   minBid = 10,
   minRaise = 10,
+  isCaptain = true,
+  eliminated = false,
+  paused = false,
   onBidSubmit,
 }: ParticipantBiddingPanelProps) {
   // Base required bid according to backend rules
@@ -41,16 +48,27 @@ export function ParticipantBiddingPanel({
   // Proposed bid calculation
   const proposedBid = baseNextBid + selectedIncrement;
 
-  // Validation
-  const isOpen = slotStatus === "open";
-  const canAfford = walletBalance >= proposedBid;
-  const isValidBid = isOpen && !isLeader && !hasWonRound && canAfford && proposedBid >= baseNextBid;
+  // Validation — mirrors the rules enforced by place_bid() in PostgreSQL.
+  const validation = validateBid({
+    currentBid,
+    minBid,
+    minRaise,
+    walletBalance,
+    isLeader,
+    hasWonRound,
+    isCaptain,
+    slotStatus,
+    eliminated,
+    paused,
+  });
+
+  const isValidBid = validation.canBid && proposedBid >= validation.minNextBid;
 
   const getDisabledReason = (): string | null => {
-    if (!isOpen) return "Auction slot is currently closed.";
-    if (isLeader) return "Your team is already leading this slot.";
-    if (hasWonRound) return "Your team has already won a slot in this round.";
-    if (!canAfford) return `Insufficient coins (${walletBalance} available, ${proposedBid} required).`;
+    if (!validation.canBid) return validation.reason ?? null;
+    if (proposedBid < validation.minNextBid) {
+      return `The minimum bid is ${validation.minNextBid} points.`;
+    }
     return null;
   };
 
@@ -106,7 +124,7 @@ export function ParticipantBiddingPanel({
             <button
               key={label}
               type="button"
-              disabled={!isOpen || isLeader || hasWonRound}
+              disabled={!validation.canBid}
               onClick={() => handleIncrementClick(value)}
               className={`h-24 sm:h-28 rounded-2xl flex items-center justify-center font-black text-3xl sm:text-4xl transition-all duration-150 cursor-pointer shadow-lg disabled:opacity-40 disabled:cursor-not-allowed ${
                 isSelected
