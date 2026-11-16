@@ -95,7 +95,7 @@ export const FigmaLoginForm: React.FC = () => {
               setTeamName(e.target.value);
               if (error) setError(null);
             }}
-            className="w-full px-5 py-3 rounded-full border border-slate-300 text-sm placeholder:text-slate-400 text-slate-900 bg-white focus:outline-none focus:border-[#ff5500] focus:ring-1 focus:ring-[#ff5500] transition-all shadow-xs"
+            className="w-full px-5 py-3 rounded-full border border-slate-300 text-sm placeholder:text-slate-400 text-slate-900 bg-white focus:outline-hidden focus:border-[#fe5102] focus:ring-1 focus:ring-[#fe5102] transition-all shadow-xs"
           />
         </div>
 
@@ -111,7 +111,7 @@ export const FigmaLoginForm: React.FC = () => {
               setCaptainUsn(e.target.value.toUpperCase());
               if (error) setError(null);
             }}
-            className="w-full pl-5 pr-12 py-3 rounded-full border border-slate-300 text-sm placeholder:text-slate-400 text-slate-900 bg-white focus:outline-none focus:border-[#ff5500] focus:ring-1 focus:ring-[#ff5500] transition-all shadow-xs uppercase font-mono"
+            className="w-full pl-5 pr-12 py-3 rounded-full border border-slate-300 text-sm placeholder:text-slate-400 text-slate-900 bg-white focus:outline-hidden focus:border-[#fe5102] focus:ring-1 focus:ring-[#fe5102] transition-all shadow-xs uppercase font-mono"
           />
           <button
             type="button"
@@ -132,7 +132,7 @@ export const FigmaLoginForm: React.FC = () => {
           <button
             type="submit"
             disabled={loading}
-            className="bg-[#ff5500] hover:bg-[#e64d00] active:scale-95 text-white font-semibold px-8 py-2.5 rounded-full text-sm shadow-md shadow-orange-500/25 transition-all inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
+            className="bg-[#fe5102] hover:bg-[#e54700] active:scale-95 text-white font-semibold px-8 py-2.5 rounded-full text-sm shadow-xs transition-all inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
           >
             {loading ? (
               <>

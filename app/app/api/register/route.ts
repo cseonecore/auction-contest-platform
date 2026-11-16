@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { getServerDb } from "@/lib/serverDb";
 
 const DEFAULT_MAX_TEAMS = 60;
 const DEFAULT_REGISTRATION_OPEN = true;
@@ -28,26 +29,6 @@ interface RegisterRequestBody {
 interface RegistrationSettings {
   isOpen: boolean;
   maxTeams: number;
-}
-
-/**
- * Server-side database client for trusted registration operations.
- * Requires SUPABASE_SERVICE_ROLE_KEY to bypass RLS policies on teams/members/wallets.
- * Never falls back to public anon/publishable keys or placeholder values.
- */
-function getDbClient(): SupabaseClient {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !serviceRoleKey) {
-    throw new Error(
-      "Missing server configuration: NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is not configured."
-    );
-  }
-
-  return createClient(url, serviceRoleKey, {
-    auth: { persistSession: false },
-  });
 }
 
 /**
@@ -111,7 +92,7 @@ async function getRegistrationSettings(
  */
 export async function GET() {
   try {
-    const db = getDbClient();
+    const db = getServerDb();
     const [{ isOpen, maxTeams }, countRes] = await Promise.all([
       getRegistrationSettings(db),
       db.from("teams").select("*", { count: "exact", head: true }),
@@ -213,20 +194,8 @@ export async function POST(request: Request) {
     const captainSemester = captain.semester.trim();
     const captainPhone = captain.phone.trim();
 
-    // 2. Validate server configuration & acquire service-role client
-    let db: SupabaseClient;
-    try {
-      db = getDbClient();
-    } catch (configErr) {
-      console.error(
-        "[Register API] Server configuration error:",
-        configErr instanceof Error ? configErr.message : configErr
-      );
-      return NextResponse.json(
-        { error: "Server configuration error. Please contact the organizers." },
-        { status: 500 }
-      );
-    }
+    // 2. Acquire server database client
+    const db = getServerDb();
 
     // 3. Authoritative backend registration safeguards
     // Step A: Read dynamic settings from public.settings (registration_open & max_teams)
@@ -319,11 +288,11 @@ export async function POST(request: Request) {
       .select("id")
       .single();
 
-    if (teamError) {
+    if (teamError || !teamData) {
       console.error("[Register API] Error inserting into teams:", teamError);
       return NextResponse.json(
         {
-          error: `Database insert failed: ${teamError.message}.`,
+          error: `Database insert failed: ${teamError?.message || "Unknown error"}.`,
         },
         { status: 500 }
       );
@@ -354,15 +323,17 @@ export async function POST(request: Request) {
     }
 
     // 7. Insert Teammates into `members` table
-    for (const tm of members) {
-      if (tm.name?.trim() && tm.usn?.trim()) {
-        const tmUsn = tm.usn.trim().toUpperCase();
-        await db.from("members").insert({
-          team_id: teamId,
-          name: tm.name.trim(),
-          email: `${tmUsn.toLowerCase()}@mite.ac.in`,
-          college: "MITE",
-        });
+    if (Array.isArray(members)) {
+      for (const tm of members) {
+        if (tm.name?.trim() && tm.usn?.trim()) {
+          const tmUsn = tm.usn.trim().toUpperCase();
+          await db.from("members").insert({
+            team_id: teamId,
+            name: tm.name.trim(),
+            email: `${tmUsn.toLowerCase()}@mite.ac.in`,
+            college: "MITE",
+          });
+        }
       }
     }
 

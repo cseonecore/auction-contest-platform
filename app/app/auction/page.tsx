@@ -1,5 +1,5 @@
 import { Metadata } from "next"
-import { AuctionRoom } from "@/features/auction/components/AuctionRoom"
+import { ParticipantAuctionRoom } from "@/features/auction/components/ParticipantAuctionRoom"
 
 export const metadata: Metadata = {
   title: "Live Bidding Arena | Bid2Build Auction Contest",
@@ -7,6 +7,7 @@ export const metadata: Metadata = {
 }
 
 export default function AuctionPage() {
-  return <AuctionRoom />
+  return <ParticipantAuctionRoom />
 }
+
 

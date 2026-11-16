@@ -249,7 +249,7 @@ export const FigmaRegistrationForm: React.FC = () => {
         <div className="mt-8">
           <Link
             href="/login"
-            className="bg-[#ff5500] hover:bg-[#e64d00] text-white font-semibold text-xs sm:text-sm px-8 py-2.5 rounded-full shadow-sm transition-all inline-block"
+            className="bg-[#fe5102] hover:bg-[#e54700] text-white font-semibold text-xs sm:text-sm px-8 py-2.5 rounded-full shadow-xs transition-all inline-block"
           >
             Go to Log in
           </Link>
@@ -301,7 +301,7 @@ export const FigmaRegistrationForm: React.FC = () => {
         <div className="mt-8">
           <Link
             href="/login"
-            className="bg-[#ff5500] hover:bg-[#e64d00] text-white font-semibold text-xs sm:text-sm px-8 py-2.5 rounded-full shadow-sm transition-all inline-block"
+            className="bg-[#fe5102] hover:bg-[#e54700] text-white font-semibold text-xs sm:text-sm px-8 py-2.5 rounded-full shadow-xs transition-all inline-block"
           >
             Back to Log in
           </Link>
@@ -334,7 +334,7 @@ export const FigmaRegistrationForm: React.FC = () => {
       <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm p-4 sm:p-6 text-left">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
           {/* LEFT: Orange Enter Details Form */}
-          <div className="bg-[#ff5500] rounded-2xl p-5 sm:p-6 text-white shadow-xs space-y-3.5">
+          <div className="bg-[#fe5102] rounded-2xl p-5 sm:p-6 text-white shadow-xs space-y-3.5">
             <h2 className="text-xl font-bold tracking-tight mb-2">
               Enter Details
             </h2>
@@ -367,7 +367,7 @@ export const FigmaRegistrationForm: React.FC = () => {
                     onClick={() => setTeamSize(sz)}
                     className={`w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center transition-all cursor-pointer ${
                       teamSize === sz
-                        ? "bg-white text-[#ff5500] shadow-sm scale-105"
+                        ? "bg-white text-[#fe5102] shadow-sm scale-105"
                         : "bg-white/30 text-white hover:bg-white/40"
                     }`}
                   >
@@ -579,7 +579,7 @@ export const FigmaRegistrationForm: React.FC = () => {
           type="button"
           onClick={handleSubmit}
           disabled={loading}
-          className="bg-[#ff5500] hover:bg-[#e64d00] active:scale-95 text-white font-semibold text-sm px-10 py-3 rounded-full shadow-md shadow-orange-500/25 transition-all inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
+          className="bg-[#fe5102] hover:bg-[#e54700] active:scale-95 text-white font-semibold text-sm px-10 py-3 rounded-full shadow-xs transition-all inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
         >
           {loading ? (
             <>

@@ -6,17 +6,16 @@ import { B2BLogo } from "@/components/shared/B2BLogo";
 import { FigmaLoginForm } from "@/features/auth/components/FigmaLoginForm";
 
 export const metadata: Metadata = {
-  title: "Log in To Your Profile | Bid2Build",
-  description: "Enter your Team ID and Captain USN and view your profile.",
+  title: "Log in To Your Profile",
+  description: "Enter your Team Name and Captain USN to access your contest profile.",
 };
 
 export default function LoginPage() {
   return (
-    <div className="min-h-screen bg-linear-to-b from-white via-white via-50% to-[#ffdcc7]/75 text-slate-900 flex flex-col justify-between py-5 px-4 sm:px-10 md:px-14 select-none">
-      {/* Top Header with MITE College Logo & NAAC A+ Accreditation */}
-      <header className="w-full flex items-center justify-between pb-3 border-b border-slate-100/90 gap-4">
-        {/* Left: Brand Logo */}
-        <B2BLogo />
+    <div className="min-h-screen bg-linear-to-b from-white via-white via-50% to-[#fbcfb5]/85 text-slate-900 flex flex-col justify-between py-6 px-4 sm:px-12 select-none">
+      {/* Top Header */}
+      <header className="w-full flex items-center justify-between">
+        <B2BLogo variant="dark" height={32} />
 
         {/* Center: MITE Official College Logo, NAAC A+ Badge & CORE Emblem */}
         <div className="flex items-center gap-2.5 sm:gap-3.5 px-3 sm:px-4 py-1.5 sm:py-2 bg-white/80 backdrop-blur-xs rounded-2xl border border-slate-200/70 shadow-2xs">
@@ -59,7 +58,7 @@ export default function LoginPage() {
         {/* Right: Register Team CTA */}
         <Link
           href="/register"
-          className="bg-[#ff5500] hover:bg-[#e64d00] active:scale-95 text-white font-semibold text-xs sm:text-sm px-5 py-2 sm:py-2.5 rounded-full shadow-xs shadow-orange-500/20 transition-all cursor-pointer whitespace-nowrap shrink-0"
+          className="bg-[#fe5102] hover:bg-[#e54700] active:scale-95 text-white font-semibold text-xs sm:text-sm px-5 py-2 sm:py-2.5 rounded-full shadow-xs transition-all cursor-pointer"
         >
           Register Team
         </Link>

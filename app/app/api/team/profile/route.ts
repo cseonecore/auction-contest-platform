@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDbClient } from "@/lib/supabaseServer";
+import { getServerDb } from "@/lib/serverDb";
 
 export async function GET(request: Request) {
   try {
@@ -11,7 +11,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Team ID or Name is required." }, { status: 400 });
     }
 
-    const db = getDbClient();
+    const db = getServerDb();
 
     // 1. Fetch Team
     let teamQuery = db.from("teams").select("id, name, captain_id, locked, created_at");
@@ -58,25 +58,30 @@ export async function GET(request: Request) {
       .eq("status", "open")
       .limit(1);
 
-    const isAuctionLive = (openSlots && openSlots.length > 0) || false;
+    const isAuctionLive = Boolean(openSlots && openSlots.length > 0);
 
-    // 6. Format members with USN, Branch, Semester, Phone
+    // 6. Fetch Team's Latest Submission
+    const { data: latestSubmission } = await db
+      .from("submissions")
+      .select("id, repository_url, status, submitted_at")
+      .eq("team_id", team.id)
+      .order("submitted_at", { ascending: false })
+      .maybeSingle();
+
+    // 7. Format members with USN, Branch, Semester, Phone
     const formattedMembers = (members || []).map((m, index) => {
       const email = m.email || "";
       const usnMatch = email.match(/^([^@]+)@/);
       const usn = usnMatch ? usnMatch[1].toUpperCase() : `4MT24CS00${index + 1}`;
 
-      // Extract Branch from USN e.g. 4MT24CS001 -> CS -> CSE
       let branch = "CSE";
       if (usn.includes("CS")) branch = "CSE";
       else if (usn.includes("IS")) branch = "ISE";
       else if (usn.includes("EC")) branch = "ECE";
       else if (usn.includes("AI")) branch = "AIML";
 
-      // Extract Semester & Phone from college field if present
-      // Example: "MITE - Sem 5 (Ph: 9876543210)"
       let semester = "5";
-      let phone = "+91 98765 43210";
+      let phone = "+91 12345 67890";
 
       if (m.college) {
         const semMatch = m.college.match(/Sem\s*(\d+)/i);
@@ -100,7 +105,6 @@ export async function GET(request: Request) {
       };
     });
 
-    // Format Assigned Problems
     interface SlotRecord {
       id: string;
       round: number;
@@ -132,6 +136,7 @@ export async function GET(request: Request) {
         members: formattedMembers,
         assignedProblems,
         isAuctionLive,
+        submission: latestSubmission || null,
       },
     });
   } catch (err: unknown) {

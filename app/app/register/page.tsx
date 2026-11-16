@@ -6,17 +6,16 @@ import { B2BLogo } from "@/components/shared/B2BLogo";
 import { FigmaRegistrationForm } from "@/features/registration/components/FigmaRegistrationForm";
 
 export const metadata: Metadata = {
-  title: "Join the Competition | Bid2Build",
+  title: "Join the Competition",
   description: "Register your team and get ready to build something awesome.",
 };
 
 export default function RegisterPage() {
   return (
-    <div className="min-h-screen bg-linear-to-b from-white via-white via-50% to-[#ffdcc7]/75 text-slate-900 flex flex-col justify-between py-5 px-4 sm:px-10 md:px-14 select-none">
-      {/* Top Header with MITE College Logo & NAAC A+ Accreditation */}
-      <header className="w-full flex items-center justify-between pb-3 border-b border-slate-100/90 gap-4">
-        {/* Left: Brand Logo */}
-        <B2BLogo />
+    <div className="min-h-screen bg-linear-to-b from-white via-white via-50% to-[#fbcfb5]/85 text-slate-900 flex flex-col justify-between py-6 px-4 sm:px-12 select-none">
+      {/* Header matching Registration Page.png */}
+      <header className="w-full flex items-center justify-between">
+        <B2BLogo variant="dark" height={32} />
 
         {/* Center: MITE Official College Logo, NAAC A+ Badge & CORE Emblem */}
         <div className="flex items-center gap-2.5 sm:gap-3.5 px-3 sm:px-4 py-1.5 sm:py-2 bg-white/80 backdrop-blur-xs rounded-2xl border border-slate-200/70 shadow-2xs">
@@ -59,7 +58,7 @@ export default function RegisterPage() {
         {/* Right: Log in CTA */}
         <Link
           href="/login"
-          className="bg-slate-900 hover:bg-black active:scale-95 text-white font-semibold text-xs sm:text-sm px-5 py-2 sm:py-2.5 rounded-full shadow-xs transition-all cursor-pointer whitespace-nowrap shrink-0"
+          className="text-sm font-semibold text-slate-800 hover:text-[#fe5102] transition-colors"
         >
           Log in
         </Link>
