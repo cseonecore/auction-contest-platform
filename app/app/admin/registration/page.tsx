@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AdminHeader } from '@/features/admin/components/AdminHeader';
+import { AdminSubnav } from '@/features/admin/components/AdminSubnav';
 import { AdminAuthGuard } from '@/features/admin/components/AdminAuthGuard';
 import { useAdminAuth } from '@/features/admin/hooks/useAdminAuth';
 import {
@@ -947,6 +948,8 @@ export default function AdminRegistrationPage() {
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8">
+        <AdminSubnav currentSection="registration" />
+
         <div className="mb-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div>
