@@ -17,8 +17,10 @@ export interface B2BLogoProps {
 
 /**
  * Centralized Bid2Build Brand Logo component.
- * Automatically respects the presence of `new_bid2build_log.png` if placed in /public,
- * otherwise cleanly renders the official Dark / White logo PNG assets from the brand identity.
+ * Uses new_bid2build_logo.png (wordmark, 2169×725) for all variants.
+ * - "dark"  → used on light backgrounds — rendered as-is
+ * - "light" → used on dark backgrounds — CSS brightness invert so it appears white
+ * - "icon"  → same as dark, smaller square-ish crop
  */
 export const B2BLogo: React.FC<B2BLogoProps> = ({
   variant = "dark",
@@ -27,16 +29,13 @@ export const B2BLogo: React.FC<B2BLogoProps> = ({
   height = 28,
   priority = false,
 }) => {
-  // If the user adds `new_bid2build_log.png`, this centralized path will pick it up
-  // or fall back to the authentic design assets.
-  const logoSrc =
-    variant === "icon"
-      ? "/bid2build_icon-01.png"
-      : variant === "light"
-      ? "/white-logo.png"
-      : "/dark-logo.png";
+  const logoSrc = "/new_bid2build_logo.png";
 
-  const imageAspectWidth = variant === "icon" ? height : Math.round(height * 4.6);
+  // The logo wordmark is 2169 × 725 → aspect ≈ 2.99
+  const imageAspectWidth = Math.round(height * (2169 / 725));
+
+  // On dark backgrounds invert colors so dark logo becomes white
+  const filterClass = variant === "light" ? "brightness-0 invert" : "";
 
   const content = (
     <div className={`inline-flex items-center select-none ${className}`}>
@@ -45,7 +44,7 @@ export const B2BLogo: React.FC<B2BLogoProps> = ({
         alt="Bid2Build"
         width={imageAspectWidth}
         height={height}
-        className="object-contain w-auto h-auto"
+        className={`object-contain w-auto h-auto ${filterClass}`}
         priority={priority}
       />
     </div>
