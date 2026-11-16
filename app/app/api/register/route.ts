@@ -184,6 +184,29 @@ export async function POST(request: Request) {
       );
     }
 
+    const USN_PATTERN = /^4MT\d{2}[A-Z]{2}\d{3}$/i;
+    if (!USN_PATTERN.test(captain.usn.trim())) {
+      return NextResponse.json(
+        {
+          error: `Invalid Captain USN "${captain.usn}". Must follow pattern 4MT2XBBMMM (e.g., 4MT24CS001).`,
+        },
+        { status: 400 }
+      );
+    }
+
+    for (const tm of members || []) {
+      if (tm.name?.trim() && tm.usn?.trim()) {
+        if (!USN_PATTERN.test(tm.usn.trim())) {
+          return NextResponse.json(
+            {
+              error: `Invalid USN "${tm.usn}" for member "${tm.name}". Must follow pattern 4MT2XBBMMM (e.g., 4MT24CS002).`,
+            },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
     const cleanTeamName = teamName.trim();
     const cleanCaptainUsn = captain.usn.trim().toUpperCase();
     const captainEmail = `${cleanCaptainUsn.toLowerCase()}@mite.ac.in`;

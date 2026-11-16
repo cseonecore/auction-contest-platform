@@ -106,6 +106,7 @@ export const FigmaLoginForm: React.FC = () => {
             required
             placeholder="Captain USN"
             value={captainUsn}
+            maxLength={10}
             onChange={(e) => {
               setCaptainUsn(e.target.value.toUpperCase());
               if (error) setError(null);

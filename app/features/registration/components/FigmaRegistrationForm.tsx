@@ -95,6 +95,12 @@ export const FigmaRegistrationForm: React.FC = () => {
       return;
     }
 
+    const USN_PATTERN = /^4MT\d{2}[A-Z]{2}\d{3}$/i;
+    if (!USN_PATTERN.test(captainUsn.trim())) {
+      setError("Invalid Captain USN! Must follow pattern 4MT2XBBMMM (e.g., 4MT24CS001).");
+      return;
+    }
+
     if (!captainSemester) {
       setError("Please select Captain's Semester.");
       return;
@@ -112,16 +118,33 @@ export const FigmaRegistrationForm: React.FC = () => {
       return;
     }
 
-    // 4. Member 3 validation (if team size >= 3)
-    if (teamSize >= 3 && (!m3Name.trim() || !m3Usn.trim())) {
-      setError("Please fill in Member 3 Name and USN.");
+    if (!USN_PATTERN.test(m2Usn.trim())) {
+      setError("Invalid Member 2 USN! Must follow pattern 4MT2XBBMMM (e.g., 4MT24CS002).");
       return;
     }
 
+    // 4. Member 3 validation (if team size >= 3)
+    if (teamSize >= 3) {
+      if (!m3Name.trim() || !m3Usn.trim()) {
+        setError("Please fill in Member 3 Name and USN.");
+        return;
+      }
+      if (!USN_PATTERN.test(m3Usn.trim())) {
+        setError("Invalid Member 3 USN! Must follow pattern 4MT2XBBMMM (e.g., 4MT24CS003).");
+        return;
+      }
+    }
+
     // 5. Member 4 validation (if team size == 4)
-    if (teamSize >= 4 && (!m4Name.trim() || !m4Usn.trim())) {
-      setError("Please fill in Member 4 Name and USN.");
-      return;
+    if (teamSize >= 4) {
+      if (!m4Name.trim() || !m4Usn.trim()) {
+        setError("Please fill in Member 4 Name and USN.");
+        return;
+      }
+      if (!USN_PATTERN.test(m4Usn.trim())) {
+        setError("Invalid Member 4 USN! Must follow pattern 4MT2XBBMMM (e.g., 4MT24CS004).");
+        return;
+      }
     }
 
     // 6. Check for duplicate USNs
@@ -373,6 +396,7 @@ export const FigmaRegistrationForm: React.FC = () => {
                   required
                   placeholder="USN [ 4MT2XBBMMM ]"
                   value={captainUsn}
+                  maxLength={10}
                   onChange={(e) => setCaptainUsn(e.target.value.toUpperCase())}
                   className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
                 />
@@ -429,6 +453,7 @@ export const FigmaRegistrationForm: React.FC = () => {
                   required
                   placeholder="USN [ 4MT2XBBMMM ]"
                   value={m2Usn}
+                  maxLength={10}
                   onChange={(e) => setM2Usn(e.target.value.toUpperCase())}
                   className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
                 />
@@ -455,6 +480,7 @@ export const FigmaRegistrationForm: React.FC = () => {
                     required
                     placeholder="USN [ 4MT2XBBMMM ]"
                     value={m3Usn}
+                    maxLength={10}
                     onChange={(e) => setM3Usn(e.target.value.toUpperCase())}
                     className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
                   />
@@ -482,6 +508,7 @@ export const FigmaRegistrationForm: React.FC = () => {
                     required
                     placeholder="USN [ 4MT2XBBMMM ]"
                     value={m4Usn}
+                    maxLength={10}
                     onChange={(e) => setM4Usn(e.target.value.toUpperCase())}
                     className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
                   />
