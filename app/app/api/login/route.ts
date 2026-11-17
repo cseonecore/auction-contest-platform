@@ -16,7 +16,19 @@ export async function POST(request: Request) {
 
     if (!captainUsn) {
       return NextResponse.json(
-        { error: "Captain USN is required." },
+        { error: "Captain USN (Password) is required." },
+        { status: 400 }
+      );
+    }
+
+    const USN_PATTERN = /^4MT\d{2}[A-Z]{2}\d{3}$/i;
+    const cleanCaptainUsn = captainUsn.replace(/[\s-]/g, "");
+    if (!USN_PATTERN.test(cleanCaptainUsn)) {
+      return NextResponse.json(
+        {
+          error:
+            "Invalid Captain USN format. Must follow pattern 4MT2XBBMMM (e.g., 4MT24CS001).",
+        },
         { status: 400 }
       );
     }
@@ -88,8 +100,7 @@ export async function POST(request: Request) {
     }
 
     // 4. Strictly match Captain USN against the Captain's registered USN/email
-    const expectedEmail = `${captainUsn.toLowerCase()}@mite.ac.in`;
-    const cleanCaptainUsn = captainUsn.replace(/[\s-]/g, "");
+    const expectedEmail = `${cleanCaptainUsn.toLowerCase()}@mite.ac.in`;
     const isCaptainMatch =
       captain?.email &&
       (captain.email.toLowerCase() === expectedEmail ||
