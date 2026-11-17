@@ -1,0 +1,20 @@
+app/(landing)/page.tsx(9,33): error TS2307: Cannot find module '@/components/landing/EventHighlights' or its corresponding type declarations.
+app/(landing)/page.tsx(38,8): error TS2304: Cannot find name 'LandingHeader'.
+app/(landing)/page.tsx(39,8): error TS2304: Cannot find name 'HeroSection'.
+components/landing/Footer.tsx(27,14): error TS2304: Cannot find name 'B2BLogo'.
+components/landing/Footer.tsx(47,18): error TS2304: Cannot find name 'Link'.
+components/landing/Footer.tsx(49,19): error TS2304: Cannot find name 'Link'.
+components/landing/Footer.tsx(52,18): error TS2304: Cannot find name 'Link'.
+components/landing/Footer.tsx(54,19): error TS2304: Cannot find name 'Link'.
+components/landing/Footer.tsx(57,18): error TS2304: Cannot find name 'Link'.
+components/landing/Footer.tsx(59,19): error TS2304: Cannot find name 'Link'.
+components/landing/Footer.tsx(62,18): error TS2304: Cannot find name 'Link'.
+components/landing/Footer.tsx(64,19): error TS2304: Cannot find name 'Link'.
+components/landing/Footer.tsx(67,18): error TS2304: Cannot find name 'Link'.
+components/landing/Footer.tsx(69,19): error TS2304: Cannot find name 'Link'.
+components/landing/Footer.tsx(72,18): error TS2304: Cannot find name 'Link'.
+components/landing/Footer.tsx(74,19): error TS2304: Cannot find name 'Link'.
+components/landing/Footer.tsx(77,18): error TS2304: Cannot find name 'Link'.
+components/landing/Footer.tsx(79,19): error TS2304: Cannot find name 'Link'.
+components/landing/Footer.tsx(116,14): error TS2304: Cannot find name 'B2BLogo'.
+components/landing/HeroSection.tsx(16,3): error TS2304: Cannot find name 'useEffect'.

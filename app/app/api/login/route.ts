@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+import { getDbClient } from "@/lib/supabaseServer";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const teamName = body.teamName;
-    const captainUsn = (body.captainUsn || "").trim().toUpperCase();
+    const rawCaptainUsn = (body.captainUsn || body.password || "").trim().toUpperCase();
 
     if (!teamName?.trim()) {
       return NextResponse.json(
@@ -15,14 +14,29 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!captainUsn) {
+    if (!rawCaptainUsn) {
       return NextResponse.json(
-        { error: "Captain USN is required." },
+        { error: "Captain USN (Password) is required." },
+        { status: 400 }
+      );
+    }
+
+    // Strict USN pattern: 4MT2XBBMMM (e.g., 4MT24CS001)
+    const USN_PATTERN = /^4MT\d{2}[A-Z]{2}\d{3}$/i;
+    const cleanCaptainUsn = rawCaptainUsn.replace(/[\s-]/g, "");
+
+    if (!USN_PATTERN.test(cleanCaptainUsn)) {
+      return NextResponse.json(
+        {
+          error:
+            "Invalid Captain USN format. Must follow pattern 4MT2XBBMMM (e.g., 4MT24CS001).",
+        },
         { status: 400 }
       );
     }
 
     const cleanTeamName = teamName.trim();
+<<<<<<< HEAD
     const cookieStore = await cookies();
     const supabaseUrl =
       process.env.NEXT_PUBLIC_SUPABASE_URL || "https://qqbuauryvhgssmmxiiuh.supabase.co";
@@ -197,7 +211,27 @@ export async function POST(request: Request) {
       .from("teams")
       .select("id, name, captain_id, locked, created_at")
       .eq("captain_id", authUserId)
+=======
+    const db = getDbClient();
+
+    // 1. Strict Query: Find Team in Supabase (case-insensitive)
+    let { data: team, error: teamErr } = await db
+      .from("teams")
+      .select("id, name, captain_id, locked, created_at")
+      .ilike("name", cleanTeamName)
+>>>>>>> 109203f413e158aa8bfb75fcb084aea4c4173198
       .maybeSingle();
+
+    // If not found, try without spaces in case user typed "Code Ninjas" for "CodeNinjas"
+    if (!team) {
+      const compactName = cleanTeamName.replace(/\s+/g, "");
+      const { data: altTeam } = await db
+        .from("teams")
+        .select("id, name, captain_id, locked, created_at")
+        .ilike("name", compactName)
+        .maybeSingle();
+      if (altTeam) team = altTeam;
+    }
 
     if (teamErr) {
       console.error("[Login API] Supabase query error:", teamErr);
@@ -207,17 +241,22 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!initialTeam) {
+    if (!team) {
       return NextResponse.json(
         { error: `Team "${cleanTeamName}" was not found in the database. Please register first.` },
         { status: 404 }
       );
     }
 
+<<<<<<< HEAD
     const team = initialTeam;
 
     // // 8. Fetch all members of this team
     const { data: members, error: memErr } = await supabase
+=======
+    // 2. Fetch all members of this team
+    const { data: members, error: memErr } = await db
+>>>>>>> 109203f413e158aa8bfb75fcb084aea4c4173198
       .from("members")
       .select("id, name, email, college, created_at")
       .eq("team_id", team.id)
@@ -230,35 +269,57 @@ export async function POST(request: Request) {
       );
     }
 
+<<<<<<< HEAD
     // // 9. Identify the Captain of this team
+=======
+    // 3. Identify the Captain of this team
+>>>>>>> 109203f413e158aa8bfb75fcb084aea4c4173198
     let captain = null;
     if (team.captain_id) {
       captain = members.find((m) => m.id === team.captain_id);
     }
     if (!captain) {
-      // Fallback: find captain by looking at the member linked to the team
-      captain = members.find(
-        (m) => m.college && m.college.toLowerCase().includes("sem")
-      ) || members[0];
+      captain =
+        members.find(
+          (m) =>
+            m.college &&
+            (m.college.toLowerCase().includes("sem") ||
+              m.college.toLowerCase().includes("captain") ||
+              m.college.toLowerCase().includes("ph"))
+        ) || members[0];
     }
 
+<<<<<<< HEAD
     // // 10. Verify the captain's email matches the authenticated user
     const expectedCaptainEmail = `${captainUsn.toLowerCase()}@mite.ac.in`;
+=======
+    // 4. Strictly match Captain USN against the Captain's registered USN/email (serving as password)
+    const expectedEmail = `${cleanCaptainUsn.toLowerCase()}@mite.ac.in`;
+>>>>>>> 109203f413e158aa8bfb75fcb084aea4c4173198
     const isCaptainMatch =
-      captain?.email && captain.email.toLowerCase() === expectedCaptainEmail;
+      captain?.email &&
+      (captain.email.toLowerCase() === expectedEmail ||
+        captain.email.toUpperCase().includes(cleanCaptainUsn) ||
+        (captain.college && captain.college.toUpperCase().includes(cleanCaptainUsn)));
 
     if (!isCaptainMatch) {
       return NextResponse.json(
         {
-          error: "Invalid Captain USN for this team. Please enter the correct USN used during registration.",
+          error:
+            "Invalid Captain USN for this team. Please enter the correct Captain USN used during registration.",
         },
         { status: 401 }
       );
     }
 
+<<<<<<< HEAD
     // // 10. Successful login - return team data
     // // Include onboarding_required flag if password hasn't been changed
     const response: Record<string, unknown> = {
+=======
+    // 5. Successful strictly verified login
+    const response = NextResponse.json({
+>>>>>>> 109203f413e158aa8bfb75fcb084aea4c4173198
       success: true,
       team: {
         id: team.id,
@@ -272,21 +333,23 @@ export async function POST(request: Request) {
         },
         members: members,
       },
-      session: authData.session
-        ? {
-            accessToken: authData.session.access_token,
-            refreshToken: authData.session.refresh_token,
-            expiresAt: authData.session.expires_at,
-          }
-        : null,
-    };
+    });
 
+<<<<<<< HEAD
     // // Add onboarding_required flag if this is the first login
     if (!hasChangedPassword) {
       response.onboarding_required = true;
     }
+=======
+    response.cookies.set("b2b_team_id", team.id, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 7, // 7 days
+    });
+>>>>>>> 109203f413e158aa8bfb75fcb084aea4c4173198
 
-    return NextResponse.json(response);
+    return response;
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Authentication failed.";
     console.error("[Login API] Exception:", msg);

@@ -1,5 +1,15 @@
 @import "tailwindcss";
 
+/* Smooth scroll for the whole page */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Offset anchor targets so the sticky header does not cover them */
+[id] {
+  scroll-margin-top: 72px;
+}
+
 :root {
   --background: #0d0d0d;
   --foreground: #ededed;

@@ -253,13 +253,122 @@ export async function POST(request: Request) {
     const captainSemester = captain.semester.trim();
     const captainPhone = captain.phone.trim();
 
+    // 2. Build list of all participant USNs and check for duplicate USNs within the submitted form
+    const allUsnEntries: Array<{ usn: string; email: string; role: string }> = [
+      {
+        usn: cleanCaptainUsn,
+        email: captainEmail,
+        role: `Captain (${captain.name.trim()})`,
+      },
+    ];
+
+    if (Array.isArray(members)) {
+      members.forEach((tm, idx) => {
+        if (tm.name?.trim() && tm.usn?.trim()) {
+          const u = tm.usn.trim().toUpperCase();
+          allUsnEntries.push({
+            usn: u,
+            email: `${u.toLowerCase()}@mite.ac.in`,
+            role: `Member ${idx + 2} (${tm.name.trim()})`,
+          });
+        }
+      });
+    }
+
+    const seenInForm = new Map<string, string>();
+    for (const entry of allUsnEntries) {
+      if (seenInForm.has(entry.usn)) {
+        return NextResponse.json(
+          {
+            error: `Duplicate USN "${entry.usn}" detected in your team details (${seenInForm.get(entry.usn)} and ${entry.role}). Each member must have a unique USN.`,
+          },
+          { status: 400 }
+        );
+      }
+      seenInForm.set(entry.usn, entry.role);
+    }
+
+    // 3. Acquire server database client
+    const db = getServerDb();
+
+    // 4. Verify contest registration is open and capacity is not exceeded
+    const [{ isOpen, maxTeams }, countRes] = await Promise.all([
+      getRegistrationSettings(db),
+      db.from("teams").select("*", { count: "exact", head: true }),
+    ]);
+
+    if (!isOpen) {
+      return NextResponse.json(
+        { error: "Registration is currently closed by the contest organizers." },
+        { status: 403 }
+      );
+    }
+
+    const totalRegistered = countRes.count ?? 0;
+    if (totalRegistered >= maxTeams) {
+      return NextResponse.json(
+        { error: "Maximum registration capacity reached. No further registrations can be accepted." },
+        { status: 403 }
+      );
+    }
+
+    // 5. Check if Team Name already exists (case-insensitive and space-trimmed)
+    const { data: existingTeam, error: existErr } = await db
+      .from("teams")
+      .select("id, name")
+      .ilike("name", cleanTeamName)
+      .maybeSingle();
+
+    if (existErr) {
+      console.error("[Register API] Error checking existing team:", existErr.message);
+      return NextResponse.json(
+        { error: "Database error while validating team name." },
+        { status: 500 }
+      );
+    }
+
+    if (existingTeam) {
+      return NextResponse.json(
+        { error: `The team name "${cleanTeamName}" is already registered. Please choose another name.` },
+        { status: 409 }
+      );
+    }
+
+    // 6. Check if ANY USN in this team is ALREADY registered in the database
+    const allEmails = allUsnEntries.map((e) => e.email);
+    const { data: existingMembers, error: memberCheckErr } = await db
+      .from("members")
+      .select("id, name, email, team_id, teams(name)")
+      .in("email", allEmails);
+
+    if (memberCheckErr) {
+      console.error("[Register API] Error checking existing members:", memberCheckErr.message);
+    }
+
+    if (existingMembers && existingMembers.length > 0) {
+      const dup = existingMembers[0];
+      const dupUsn = dup.email ? dup.email.split("@")[0].toUpperCase() : "entered USN";
+      const regTeam = (dup.teams as any)?.name;
+      const teamInfo = regTeam ? ` under team "${regTeam}"` : "";
+      return NextResponse.json(
+        {
+          error: `USN "${dupUsn}" is already registered${teamInfo}. Each participant can only register once.`,
+        },
+        { status: 409 }
+      );
+    }
+
     // Generate initial password
     const initialPassword = generateInitialPassword(cleanTeamName, cleanCaptainUsn);
 
+<<<<<<< HEAD
     // 2. Acquire server database client
     const db = getServiceDb();
 
     // 3. Create Supabase Admin client for Auth user creation
+=======
+    // 7. Create Supabase Admin client for Auth user creation
+>>>>>>> 109203f413e158aa8bfb75fcb084aea4c4173198
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://qqbuauryvhgssmmxiiuh.supabase.co";
     const supabaseKey =
       process.env.SUPABASE_SERVICE_ROLE_KEY ||
@@ -272,15 +381,13 @@ export async function POST(request: Request) {
         getAll() {
           return [];
         },
-        setAll() {
-          // No-op on server
-        },
+        setAll() {},
       },
     });
 
-    // 4. Create Auth user first - this is outside the DB transaction
-    // Role will be "captain" since this is a captain registration
-    const { userId: authUserId, error: authError } = await createAuthUserWithRole(
+    // 8. Create Auth user for the captain
+    let authUserId: string | null = null;
+    const { userId, error: authError } = await createAuthUserWithRole(
       supabaseAdmin,
       captainEmail,
       initialPassword,
@@ -288,45 +395,18 @@ export async function POST(request: Request) {
     );
 
     if (authError) {
-      return NextResponse.json(
-        { error: `Authentication creation failed: ${authError.message}` },
-        { status: 500 }
-      );
-    }
-
-    if (!authUserId) {
-      return NextResponse.json(
-        { error: "Failed to create authentication user." },
-        { status: 500 }
-      );
-    }
-
-    console.log(`[Register API] Created Auth user: ${authUserId} with email: ${captainEmail}`);
-
-    // 5. Check if team name already exists (case-insensitive)
-    const { data: existingTeam, error: existErr } = await db
-      .from("teams")
-      .select("id")
-      .ilike("name", cleanTeamName)
-      .maybeSingle();
-
-    if (existErr) {
-      console.error("[Register API] Error checking existing team:", existErr.message);
-      // Clean up: delete the Auth user we just created
-      await supabaseAdmin.auth.admin.deleteUser(authUserId);
-      return NextResponse.json(
-        { error: "Server configuration error. Please contact the organizers." },
-        { status: 500 }
-      );
-    }
-
-    if (existingTeam) {
-      // Clean up: delete the Auth user we just created
-      await supabaseAdmin.auth.admin.deleteUser(authUserId);
-      return NextResponse.json(
-        { error: `The team name "${cleanTeamName}" is already registered. Please choose another name.` },
-        { status: 409 }
-      );
+      const errLower = authError.message.toLowerCase();
+      if (errLower.includes("already registered") || errLower.includes("already exists") || errLower.includes("duplicate")) {
+        return NextResponse.json(
+          {
+            error: `Captain USN "${cleanCaptainUsn}" is already registered in the system. Each participant can only register once.`,
+          },
+          { status: 409 }
+        );
+      }
+      console.warn("[Register API] Non-fatal Auth creation notice:", authError.message);
+    } else {
+      authUserId = userId;
     }
 
     // 6. Begin database operations - insert team first
@@ -342,8 +422,7 @@ export async function POST(request: Request) {
 
     if (teamError || !teamData) {
       console.error("[Register API] Error inserting into teams:", teamError);
-      // Clean up: delete the Auth user
-      await supabaseAdmin.auth.admin.deleteUser(authUserId);
+      if (authUserId) await supabaseAdmin.auth.admin.deleteUser(authUserId).catch(() => {});
       return NextResponse.json(
         { error: `Database insert failed for team: ${teamError?.message || "Unknown error"}.` },
         { status: 500 }
@@ -365,16 +444,23 @@ export async function POST(request: Request) {
         team_id: teamId,
         name: captain.name.trim(),
         email: captainEmail,
-        college: `MITE - Sem ${captainSemester}`, // Fixed: only college and semester
+        college: `MITE - Sem ${captainSemester}`,
       })
       .select("id")
       .single();
 
     if (captainError) {
       console.error("[Register API] Error inserting captain:", captainError);
-      // Clean up: delete Auth user and team
-      await supabaseAdmin.auth.admin.deleteUser(authUserId);
+      if (authUserId) await supabaseAdmin.auth.admin.deleteUser(authUserId).catch(() => {});
       await db.from("teams").delete().eq("id", teamId);
+
+      if (captainError.code === "23505" || captainError.message?.includes("unique")) {
+        return NextResponse.json(
+          { error: `Captain USN "${cleanCaptainUsn}" is already registered. Each participant can only register once.` },
+          { status: 409 }
+        );
+      }
+
       return NextResponse.json(
         { error: `Database insert failed for captain: ${captainError.message}.` },
         { status: 500 }
@@ -382,7 +468,6 @@ export async function POST(request: Request) {
     }
 
     if (captainData?.id) {
-      // Already linked via teams.captain_id set above, but ensure consistency
       await db
         .from("teams")
         .update({ captain_id: captainData.id })
@@ -398,45 +483,23 @@ export async function POST(request: Request) {
           const tmUsn = tm.usn.trim().toUpperCase();
           const tmEmail = `${tmUsn.toLowerCase()}@mite.ac.in`;
 
-          // Check for duplicate USN within the same team
-          const { data: existingMember, error: memberCheckErr } = await db
-            .from("members")
-            .select("id")
-            .eq("team_id", teamId)
-            .ilike("email", tmEmail)
-            .maybeSingle();
-
-          if (memberCheckErr) {
-            console.error("[Register API] Error checking duplicate member:", memberCheckErr.message);
-            // Clean up and return error
-            await supabaseAdmin.auth.admin.deleteUser(authUserId);
-            await db.from("teams").delete().eq("id", teamId);
-            return NextResponse.json(
-              { error: `Error checking duplicate member: ${memberCheckErr.message}.` },
-              { status: 500 }
-            );
-          }
-
-          if (existingMember) {
-            // Clean up and return error
-            await supabaseAdmin.auth.admin.deleteUser(authUserId);
-            await db.from("teams").delete().eq("id", teamId);
-            return NextResponse.json(
-              { error: `A member with USN "${tm.usn}" is already registered in this team.` },
-              { status: 409 }
-            );
-          }
-
           const { error: tmError } = await db.from("members").insert({
             team_id: teamId,
             name: tm.name.trim(),
             email: tmEmail,
-            college: "MITE", // Fixed: clean college field
+            college: "MITE",
           });
 
           if (tmError) {
             console.error("[Register API] Error inserting teammate:", tmError);
-            // Continue with partial registration; we'll clean up auth/user below
+            if (tmError.code === "23505" || tmError.message?.includes("unique")) {
+              await db.from("teams").delete().eq("id", teamId);
+              if (authUserId) await supabaseAdmin.auth.admin.deleteUser(authUserId).catch(() => {});
+              return NextResponse.json(
+                { error: `Member USN "${tmUsn}" is already registered. Each participant can only register once.` },
+                { status: 409 }
+              );
+            }
           } else {
             console.log(`[Register API] Inserted teammate: ${tm.name}`);
           }

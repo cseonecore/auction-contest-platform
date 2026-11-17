@@ -4,59 +4,72 @@ import Image from "next/image";
 
 export interface B2BLogoProps {
   /**
-   * "dark" = Dark text for light backgrounds (default)
-   * "light" = White text for dark backgrounds
-   * "icon" = Squircle logo mark icon only
+   * "dark"  = Original logo colors — use on dark backgrounds (new_bid2build_logo.png)
+   * "light" = White version — use on dark backgrounds needing pure white (white-logo.png)
+   * "icon"  = Icon-only mark (bid2build_icon-01.png)
    */
   variant?: "dark" | "light" | "icon";
   className?: string;
+  /**
+   * href: provide a URL to wrap in a Link.
+   * Pass null or undefined to render without a link wrapper.
+   * Default: undefined (no link).
+   */
   href?: string | null;
   height?: number;
   priority?: boolean;
+  /**
+   * presentational: if true, never renders a Link wrapper — even if href is provided.
+   * Use when B2BLogo is already inside an anchor or Next.js Link to avoid nested anchors.
+   */
+  presentational?: boolean;
 }
 
 /**
  * Centralized Bid2Build Brand Logo component.
- * Uses new_bid2build_logo.png (wordmark, 2169×725) for all variants.
- * - "dark"  → used on light backgrounds — rendered as-is
- * - "light" → used on dark backgrounds — CSS brightness invert so it appears white
- * - "icon"  → same as dark, smaller square-ish crop
+ * - Avoid wrapping in an external Link when href is set — it handles its own navigation.
+ * - Use presentational={true} when this component is nested inside an anchor/Link element.
  */
 export const B2BLogo: React.FC<B2BLogoProps> = ({
   variant = "dark",
   className = "",
-  href = "/",
+  href,
   height = 28,
   priority = false,
+  presentational = false,
 }) => {
-  const logoSrc = "/new_bid2build_logo.png";
+  const logoSrc =
+    variant === "light"
+      ? "/white-logo.png"
+      : variant === "icon"
+      ? "/bid2build_icon-01.png"
+      : "/new_bid2build_logo.png";
 
-  // The logo wordmark is 2169 × 725 → aspect ≈ 2.99
-  const imageAspectWidth = Math.round(height * (2169 / 725));
-
-  // On dark backgrounds invert colors so dark logo becomes white
-  const filterClass = variant === "light" ? "brightness-0 invert" : "";
+  // Aspect ratios: wordmark 2169×725 ≈ 2.99 | icon 1:1
+  const aspectRatio = variant === "icon" ? 1 : 2169 / 725;
+  const imageWidth = Math.round(height * aspectRatio);
 
   const content = (
     <div className={`inline-flex items-center select-none ${className}`}>
       <Image
         src={logoSrc}
         alt="Bid2Build"
-        width={imageAspectWidth}
+        width={imageWidth}
         height={height}
-        className={`object-contain w-auto h-auto ${filterClass}`}
+        className="object-contain w-auto h-auto"
         priority={priority}
+        style={{ maxHeight: `${height}px` }}
       />
     </div>
   );
 
-  if (href) {
-    return (
-      <Link href={href} className="inline-flex items-center focus:outline-hidden">
-        {content}
-      </Link>
-    );
+  if (presentational || !href) {
+    return content;
   }
 
-  return content;
+  return (
+    <Link href={href} className="inline-flex items-center focus:outline-hidden">
+      {content}
+    </Link>
+  );
 };

@@ -1,7 +1,8 @@
-import LoginPage, { metadata } from "./login/page";
+import { metadata } from "./(landing)/page";
+import LandingPage from "./(landing)/page";
 
 export { metadata };
 
 export default function Home() {
-  return <LoginPage />;
+  return <LandingPage />;
 }
