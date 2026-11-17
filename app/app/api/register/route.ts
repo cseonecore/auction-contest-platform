@@ -289,7 +289,7 @@ export async function POST(request: Request) {
     }
 
     // 3. Acquire server database client
-    const db = getServerDb();
+    const db = getServiceDb();
 
     // 4. Verify contest registration is open and capacity is not exceeded
     const [{ isOpen, maxTeams }, countRes] = await Promise.all([
@@ -361,14 +361,7 @@ export async function POST(request: Request) {
     // Generate initial password
     const initialPassword = generateInitialPassword(cleanTeamName, cleanCaptainUsn);
 
-<<<<<<< HEAD
-    // 2. Acquire server database client
-    const db = getServiceDb();
-
-    // 3. Create Supabase Admin client for Auth user creation
-=======
     // 7. Create Supabase Admin client for Auth user creation
->>>>>>> 109203f413e158aa8bfb75fcb084aea4c4173198
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://qqbuauryvhgssmmxiiuh.supabase.co";
     const supabaseKey =
       process.env.SUPABASE_SERVICE_ROLE_KEY ||
