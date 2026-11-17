@@ -47,13 +47,20 @@ export async function GET(request: Request) {
     // 3. Return success - the Supabase auth.signOut() combined with the
     // session invalidation RPC ensures the session is properly terminated
     // The frontend should use the returned session state to clear local storage
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       message: "Logged out successfully.",
     });
+
+    response.cookies.delete("b2b_team_id");
+    return response;
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Logout failed.";
     console.error("[Logout API] Exception:", msg);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
+}
+
+export async function POST(request: Request) {
+  return GET(request);
 }

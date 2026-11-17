@@ -120,7 +120,7 @@ export async function POST(request: Request) {
     }
 
     // 5. Successful strictly verified login
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       team: {
         id: team.id,
@@ -135,6 +135,15 @@ export async function POST(request: Request) {
         members: members,
       },
     });
+
+    response.cookies.set("b2b_team_id", team.id, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 7, // 7 days
+    });
+
+    return response;
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Authentication failed.";
     console.error("[Login API] Exception:", msg);

@@ -1,122 +1,78 @@
 import { NextResponse } from "next/server";
-import { getServerDb } from "@/lib/serverDb";
-import { createServerClient } from "@supabase/ssr";
+import { getDbClient } from "@/lib/supabaseServer";
 import { cookies } from "next/headers";
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const teamId = searchParams.get("id");
+    let teamId = searchParams.get("id");
     const teamName = searchParams.get("name");
 
+    // Fallback: check session cookie if query params are missing
     if (!teamId && !teamName) {
-      return NextResponse.json({ error: "Team ID or Name is required." }, { status: 400 });
+      const cookieStore = await cookies();
+      const cookieTeamId = cookieStore.get("b2b_team_id")?.value;
+      if (cookieTeamId) {
+        teamId = cookieTeamId;
+      }
     }
 
-    const cookieStore = await cookies();
-    const supabaseUrl =
-      process.env.NEXT_PUBLIC_SUPABASE_URL || "https://qqbuauryvhgssmmxiiuh.supabase.co";
-    const supabaseKey =
-      process.env.SUPABASE_SERVICE_ROLE_KEY ||
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-      "sb_publishable_nRvQFOW3SK82rWBY6VsDGw_yw5-3Itj";
-
-    const supabase = createServerClient(supabaseUrl, supabaseKey, {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll(cookiesToSet: Array<{ name: string; value: string; options?: Record<string, unknown> }>) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options as any)
-            );
-          } catch {
-            // The `setAll` method was called from a Server Component.
-            // This can be ignored if middleware or server-side revalidation
-            // is managing the cookies.
-          }
-        },
-      },
-    });
-
-    // Get the authenticated user
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      return NextResponse.json({ error: "Unauthenticated." }, { status: 401 });
+    if (!teamId && !teamName) {
+      return NextResponse.json(
+        { error: "Unauthenticated. Please log in first." },
+        { status: 401 }
+      );
     }
 
-    const authUserId = user.id;
-    const authEmail = user.email || "";
+    const db = getDbClient();
 
-    // Use the RLS-safe function to find the user's team
-    // current_team_id() resolves the team from members table where id = auth.uid()
-    let team;
+    // 1. Fetch Team (by ID or Name)
+    let team = null;
 
     if (teamId) {
-      // Fetch specific team by ID, with RLS check
-      const { data: teamData, error: teamErr } = await supabase
+      const { data, error } = await db
         .from("teams")
         .select("id, name, captain_id, locked, created_at")
         .eq("id", teamId)
-        .single();
-
-      if (teamErr || !teamData) {
-        return NextResponse.json({ error: "Team not found." }, { status: 404 });
-      }
-
-      team = teamData;
-
-      // Verify the authenticated user is associated with this team
-      const { data: memberCheck } = await supabase
-        .from("members")
-        .select("id, team_id")
-        .eq("team_id", team.id)
-        .eq("id", authUserId)
         .maybeSingle();
 
-      if (!memberCheck) {
-        return NextResponse.json(
-          { error: "You are not authorized to view this team's profile." },
-          { status: 403 }
-        );
+      if (error) {
+        console.error("[Profile API] Error fetching team by ID:", error);
       }
-    } else {
-      // Fetch team by name - use RLS to find user's team
-      // Ensure teamName is not null for ilike
-      const safeTeamName = teamName || "";
-      const { data: teamData, error: teamErr } = await supabase
+      team = data;
+    }
+
+    if (!team && teamName) {
+      const cleanTeamName = teamName.trim();
+      const { data, error } = await db
         .from("teams")
         .select("id, name, captain_id, locked, created_at")
-        .ilike("name", safeTeamName)
+        .ilike("name", cleanTeamName)
         .maybeSingle();
 
-      if (teamErr || !teamData) {
-        return NextResponse.json({ error: "Team not found." }, { status: 404 });
+      if (error) {
+        console.error("[Profile API] Error fetching team by name:", error);
       }
+      team = data;
 
-      team = teamData;
-
-      // Verify the authenticated user is associated with this team
-      const { data: memberCheck } = await supabase
-        .from("members")
-        .select("id, team_id")
-        .eq("team_id", team.id)
-        .eq("id", authUserId)
-        .maybeSingle();
-
-      if (!memberCheck) {
-        return NextResponse.json(
-          { error: "You are not authorized to view this team's profile." },
-          { status: 403 }
-        );
+      // Try compact name without spaces
+      if (!team) {
+        const compactName = cleanTeamName.replace(/\s+/g, "");
+        const { data: altTeam } = await db
+          .from("teams")
+          .select("id, name, captain_id, locked, created_at")
+          .ilike("name", compactName)
+          .maybeSingle();
+        if (altTeam) team = altTeam;
       }
     }
 
+    if (!team) {
+      return NextResponse.json({ error: "Team not found." }, { status: 404 });
+    }
+
     // 2. Fetch Team Members
-    const { data: members, error: memErr } = await supabase
+    const { data: members, error: memErr } = await db
       .from("members")
       .select("id, name, email, college, created_at")
       .eq("team_id", team.id)
@@ -127,33 +83,31 @@ export async function GET(request: Request) {
     }
 
     // 3. Fetch Wallet
-    const { data: wallet } = await supabase
+    const { data: wallet } = await db
       .from("wallets")
       .select("balance")
       .eq("team_id", team.id)
       .maybeSingle();
 
     // 4. Fetch Won Slots & Topics (Assigned Problems)
-    const { data: wonSlots } = await supabase
+    const { data: wonSlots } = await db
       .from("slots")
       .select(
         "id, round, status, current_bid, topic_id, topics(id, title, description, level, criterion)"
       )
       .eq("winner_team_id", team.id);
 
-    const isAuctionLive = Boolean(wonSlots && wonSlots.length > 0);
-
     // 5. Fetch Auction Status (check if any slot is currently 'open')
-    const { data: openSlots } = await supabase
+    const { data: openSlots } = await db
       .from("slots")
       .select("id")
       .eq("status", "open")
       .limit(1);
 
-    const isAuctionLive2 = Boolean(openSlots && openSlots.length > 0);
+    const isAuctionLive = Boolean(openSlots && openSlots.length > 0);
 
     // 6. Fetch Team's Latest Submission
-    const { data: latestSubmission } = await supabase
+    const { data: latestSubmission } = await db
       .from("submissions")
       .select("id, repository_url, status, submitted_at")
       .eq("team_id", team.id)
