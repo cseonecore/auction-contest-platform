@@ -34,53 +34,52 @@ export const Footer = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-10 py-14">
           {/* Left — Branding */}
           <div className="space-y-6">
-            {/* Bid2Build logo — original colors preserved */}
+            {/* Bid2Build primary logo — original colors preserved */}
             <div>
               <Image
                 src="/new_bid2build_logo.png"
                 alt="Bid2Build"
-                width={160}
-                height={48}
-                className="object-contain w-auto"
-                style={{ maxHeight: 48 }}
+                width={170}
+                height={52}
+                className="object-contain h-13 w-auto"
+                style={{ maxHeight: 52 }}
               />
             </div>
 
-            {/* Institution logos row */}
-            <div className="flex items-center gap-4 flex-wrap">
-              {/* MITE logo */}
-              <div className="bg-white rounded-lg p-1.5">
+            {/* Institution partner logos — NO background, sized in Golden Ratio */}
+            <div className="flex items-center gap-5 flex-wrap pt-1">
+              {/* MITE logo — direct transparent rendering without background box */}
+              <div className="flex items-center">
                 <Image
-                  src="/logos/mite-logo.png"
-                  alt="MITE"
-                  width={56}
-                  height={40}
-                  className="object-contain w-auto"
-                  style={{ maxHeight: 40 }}
+                  src="/logos/mite-logo-footer.png"
+                  alt="MITE - Mangalore Institute of Technology and Engineering"
+                  width={130}
+                  height={46}
+                  className="object-contain h-11 w-auto"
                 />
               </div>
-              {/* Dev Studio logo */}
-              <div>
+
+              {/* Dev Studio logo — increased size for balanced golden ratio presence */}
+              <div className="flex items-center">
                 <Image
                   src="/logos/dev-studio-logo.png"
                   alt="Dev Studio"
-                  width={80}
-                  height={36}
-                  className="object-contain w-auto"
-                  style={{ maxHeight: 36 }}
+                  width={48}
+                  height={48}
+                  className="object-contain h-11 w-11 rounded-full"
                 />
               </div>
             </div>
 
             {/* Dept text */}
-            <div className="space-y-1">
-              <p className="text-xs text-[#6b6b6d] leading-relaxed">
+            <div className="space-y-1 pt-1">
+              <p className="text-xs text-[#8a8a8a] leading-relaxed">
                 Department of Computer Science and Engineering
               </p>
-              <p className="text-xs text-[#6b6b6d] leading-relaxed">
+              <p className="text-xs text-[#8a8a8a] leading-relaxed">
                 Mangalore Institute of Technology and Engineering (MITE)
               </p>
-              <p className="text-xs text-[#4a4a4a] mt-2">
+              <p className="text-xs text-[#5a5a5a] mt-2">
                 Organized by MITE 5CSE1 in collaboration with Dev Studio.
               </p>
             </div>
