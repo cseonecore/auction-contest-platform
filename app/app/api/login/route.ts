@@ -5,7 +5,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const teamName = body.teamName;
-    const captainUsn = (body.captainUsn || body.password || "").trim().toUpperCase();
+    const rawCaptainUsn = (body.captainUsn || body.password || "").trim().toUpperCase();
 
     if (!teamName?.trim()) {
       return NextResponse.json(
@@ -14,15 +14,17 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!captainUsn) {
+    if (!rawCaptainUsn) {
       return NextResponse.json(
         { error: "Captain USN (Password) is required." },
         { status: 400 }
       );
     }
 
+    // Strict USN pattern: 4MT2XBBMMM (e.g., 4MT24CS001)
     const USN_PATTERN = /^4MT\d{2}[A-Z]{2}\d{3}$/i;
-    const cleanCaptainUsn = captainUsn.replace(/[\s-]/g, "");
+    const cleanCaptainUsn = rawCaptainUsn.replace(/[\s-]/g, "");
+
     if (!USN_PATTERN.test(cleanCaptainUsn)) {
       return NextResponse.json(
         {
@@ -99,7 +101,7 @@ export async function POST(request: Request) {
         ) || members[0];
     }
 
-    // 4. Strictly match Captain USN against the Captain's registered USN/email
+    // 4. Strictly match Captain USN against the Captain's registered USN/email (serving as password)
     const expectedEmail = `${cleanCaptainUsn.toLowerCase()}@mite.ac.in`;
     const isCaptainMatch =
       captain?.email &&
@@ -110,7 +112,8 @@ export async function POST(request: Request) {
     if (!isCaptainMatch) {
       return NextResponse.json(
         {
-          error: "Invalid Captain USN for this team. Please enter the correct USN used during registration.",
+          error:
+            "Invalid Captain USN for this team. Please enter the correct Captain USN used during registration.",
         },
         { status: 401 }
       );

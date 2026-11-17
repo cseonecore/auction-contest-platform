@@ -48,3 +48,12 @@ export function formatTimeDisplay(seconds: number): string {
   return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`
 }
 
+/** Formats remaining seconds as "1min : 24sec" matching Figma screenshots. */
+export function formatMinSec(seconds: number): string {
+  if (seconds <= 0) return "0min : 00sec"
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return `${m}min : ${s.toString().padStart(2, "0")}sec`
+}
+
+

@@ -26,6 +26,7 @@ interface ActiveSlotControllerProps {
   recentBids: AdminBidWithTeam[];
   onRequestAction: (slot: AdminSlotWithDetails, action: AuctionActionType) => void;
   isActionInProgress: boolean;
+  onRequestReset?: () => void;
 }
 
 function formatCriterion(criterion: unknown): string {
@@ -44,6 +45,7 @@ export function ActiveSlotController({
   recentBids,
   onRequestAction,
   isActionInProgress,
+  onRequestReset,
 }: ActiveSlotControllerProps) {
   const [selectedPendingId, setSelectedPendingId] = useState<string>('');
   const [timeRemainingSeconds, setTimeRemainingSeconds] = useState<number | null>(null);
@@ -114,6 +116,20 @@ export function ActiveSlotController({
 
               {/* Action Buttons */}
               <div className="flex items-center gap-2 self-start sm:self-auto">
+                {onRequestReset && (
+                  <button
+                    type="button"
+                    disabled={isActionInProgress}
+                    onClick={onRequestReset}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl border border-rose-300 dark:border-rose-900/80 text-rose-700 dark:text-rose-300 bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-colors disabled:opacity-50"
+                    title="Reset all auction slots, bids, and team wallets"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <span>Reset All</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   disabled={isActionInProgress}
@@ -312,6 +328,23 @@ export function ActiveSlotController({
                 Per Rule Book §5.1, only one slot may be open for bidding at any given time. Select a pending slot below to launch the next 10-second opening bidding window.
               </p>
             </div>
+
+            {onRequestReset && (
+              <div className="flex justify-center pt-1">
+                <button
+                  type="button"
+                  disabled={isActionInProgress}
+                  onClick={onRequestReset}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 bg-rose-50/60 dark:bg-rose-950/20 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-colors disabled:opacity-50"
+                  title="Reset all auction slots to pending, clear bids, and restore team wallets"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  <span>Reset All Topics</span>
+                </button>
+              </div>
+            )}
 
             {/* Pending Slot Launcher Interface */}
             {pendingSlots.length > 0 ? (

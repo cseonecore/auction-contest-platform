@@ -122,6 +122,7 @@ export interface Database {
           round: 1 | 2
           status: "pending" | "open" | "sold" | "skipped"
           current_bid: number
+          min_bid: number
           leader_team_id: string | null
           end_time: string | null
           winner_team_id: string | null
@@ -132,6 +133,7 @@ export interface Database {
           round: 1 | 2
           status?: "pending" | "open" | "sold" | "skipped"
           current_bid?: number
+          min_bid?: number
           leader_team_id?: string | null
           end_time?: string | null
           winner_team_id?: string | null
@@ -142,6 +144,7 @@ export interface Database {
           round?: 1 | 2
           status?: "pending" | "open" | "sold" | "skipped"
           current_bid?: number
+          min_bid?: number
           leader_team_id?: string | null
           end_time?: string | null
           winner_team_id?: string | null
@@ -431,6 +434,22 @@ export interface Database {
       open_slot: {
         Args: {
           p_slot_id: string
+          p_starting_bid?: number
+        }
+        Returns: Json
+      }
+      reset_auction: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
+      }
+      create_auction_topic: {
+        Args: {
+          p_title: string
+          p_description: string | null
+          p_level: string
+          p_starting_bid?: number
+          p_criterion?: Json | null
+          p_slots_count?: number
         }
         Returns: Json
       }

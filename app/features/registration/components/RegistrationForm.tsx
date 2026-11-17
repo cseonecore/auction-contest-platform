@@ -239,31 +239,33 @@ export const RegistrationForm: React.FC = () => {
         submittedAt: new Date().toISOString(),
       };
 
-      // Optional: Attempt Supabase or API sync if available
-      // Note: If RLS or auth isn't configured for anonymous writes, we gracefully fall back
-      try {
-        if (supabase) {
-          // Attempt check or log (future backend integration hook)
-          console.log("[Registration] Ready for Supabase sync:", payload.teamName);
-        }
-      } catch (dbErr) {
-        console.warn("[Registration] Supabase sync fallback:", dbErr);
+      // Call the register API
+      const res = await fetch("/api/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const apiData = await res.json();
+
+      if (!res.ok) {
+        // Handle API errors
+        throw new Error(apiData.error || "Registration failed");
       }
 
-      // Simulate network latency for smooth UI feedback
-      await new Promise((resolve) => setTimeout(resolve, 800));
-
-      // Generate a user-friendly Registration ID (e.g. B2B-TEAM-XXXX)
-      const randomCode = Math.floor(1000 + Math.random() * 9000);
-      const regId = `B2B-${formData.teamSize}M-${randomCode}`;
+      // successful registration - API returns initialPassword
+      const initialPassword = apiData.initialPassword || "";
 
       const finalResult: RegistrationSuccessData = {
-        registrationId: regId,
+        registrationId: apiData.teamId || `B2B-${formData.teamSize}M-${Math.floor(1000 + Math.random() * 9000)}`,
         teamName: payload.teamName,
         teamSize: payload.teamSize,
         registeredAt: payload.submittedAt,
         leader: payload.leader,
         teammates: payload.teammates,
+        initialPassword, // Include initial password for captain
       };
 
       // Also persist to localStorage for local recovery/demo inspection

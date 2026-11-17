@@ -21,6 +21,7 @@ import type {
   SlotRoundFilter,
   AuctionActionFeedback,
   ActionInProgressState,
+  CreateTopicFormValues,
   UseAdminAuctionOptions,
   UseAdminAuctionReturn,
   RealtimeSubscriptionStatus,
@@ -34,6 +35,8 @@ import {
   openSlot,
   closeSlot,
   skipSlot,
+  resetAuction,
+  createAuctionTopic,
   subscribeToAuctionRealtime,
 } from '../services/auctionAdminService';
 
@@ -269,9 +272,10 @@ export function useAdminAuction(
   /**
    * Opens a pending auction slot with a 10-second opening window.
    * Concurrency-guarded: rejects if another action is in progress or slot is not pending.
+   * Accepts optional custom starting bid points (defaults to 10).
    */
   const handleOpenSlot = useCallback(
-    async (slotId: string): Promise<boolean> => {
+    async (slotId: string, startingBid: number = 10): Promise<boolean> => {
       if (isExecutingActionRef.current) {
         setActionFeedback({
           type: 'error',
@@ -294,6 +298,14 @@ export function useAdminAuction(
         return false;
       }
 
+      if (typeof startingBid !== 'number' || isNaN(startingBid) || startingBid <= 0) {
+        setActionFeedback({
+          type: 'error',
+          message: 'Starting bid points must be a valid positive whole number.',
+        });
+        return false;
+      }
+
       // Check if there is already another open slot
       const existingOpen = slots.find((s) => s.status === 'open' && s.id !== slotId);
       if (existingOpen) {
@@ -309,7 +321,7 @@ export function useAdminAuction(
       setActionFeedback(null);
 
       try {
-        const res = await openSlot(slotId);
+        const res = await openSlot(slotId, startingBid);
         if (!res.success) {
           setActionFeedback({
             type: 'error',
@@ -320,7 +332,7 @@ export function useAdminAuction(
 
         setActionFeedback({
           type: 'success',
-          message: `Slot opened successfully! 10-second bidding window is active.`,
+          message: `Slot opened successfully! 10-second bidding window is active (starting bid: ${startingBid} pts).`,
         });
 
         setRefreshTrigger((prev) => prev + 1);
@@ -463,6 +475,108 @@ export function useAdminAuction(
     [slots]
   );
 
+  /**
+   * Performs an atomic full reset of the auction.
+   * Resets all slots to pending, deletes all bids, and restores team wallets.
+   * Concurrency-guarded: rejects if another action is in progress.
+   */
+  const handleResetAuction = useCallback(async (): Promise<boolean> => {
+    if (isExecutingActionRef.current) {
+      setActionFeedback({
+        type: 'error',
+        message: 'Another auction action is already in progress. Please wait.',
+      });
+      return false;
+    }
+
+    isExecutingActionRef.current = true;
+    setActionInProgress({ action: 'reset' });
+    setActionFeedback(null);
+
+    try {
+      const res = await resetAuction();
+      if (!res.success) {
+        setActionFeedback({
+          type: 'error',
+          message: res.error || 'Failed to execute auction reset.',
+        });
+        return false;
+      }
+
+      const info = res.data;
+      const count = info?.slots_reset ?? slots.length;
+      const balance = info?.starting_balance ?? 100;
+
+      setActionFeedback({
+        type: 'success',
+        message: `Auction reset successfully! ${count} slots restored to Pending, bids deleted, and wallets restored to ${balance} pts.`,
+      });
+
+      setRefreshTrigger((prev) => prev + 1);
+      return true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to execute resetAuction RPC';
+      setActionFeedback({ type: 'error', message: msg });
+      return false;
+    } finally {
+      setActionInProgress(null);
+      isExecutingActionRef.current = false;
+    }
+  }, [slots.length]);
+
+  /**
+   * Creates a new auction topic and its associated slot(s) atomically.
+   * Concurrency-guarded: rejects if another action is in progress.
+   */
+  const handleCreateTopic = useCallback(
+    async (values: CreateTopicFormValues): Promise<boolean> => {
+      if (isExecutingActionRef.current) {
+        setActionFeedback({
+          type: 'error',
+          message: 'Another auction action is already in progress. Please wait.',
+        });
+        return false;
+      }
+
+      if (!values.title || !values.title.trim()) {
+        setActionFeedback({ type: 'error', message: 'Topic title is required.' });
+        return false;
+      }
+
+      isExecutingActionRef.current = true;
+      setActionInProgress({ action: 'add_topic' });
+      setActionFeedback(null);
+
+      try {
+        const res = await createAuctionTopic(values);
+        if (!res.success) {
+          setActionFeedback({
+            type: 'error',
+            message: res.error || 'Failed to create auction topic.',
+          });
+          return false;
+        }
+
+        const slotCount = res.data?.slots?.length ?? values.slots_count ?? 1;
+        setActionFeedback({
+          type: 'success',
+          message: `Topic "${values.title.trim()}" created successfully with ${slotCount} pending slot(s)!`,
+        });
+
+        setRefreshTrigger((prev) => prev + 1);
+        return true;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to create auction topic';
+        setActionFeedback({ type: 'error', message: msg });
+        return false;
+      } finally {
+        setActionInProgress(null);
+        isExecutingActionRef.current = false;
+      }
+    },
+    []
+  );
+
   const clearFeedback = useCallback(() => {
     setActionFeedback(null);
   }, []);
@@ -501,6 +615,8 @@ export function useAdminAuction(
     handleOpenSlot,
     handleCloseSlot,
     handleSkipSlot,
+    handleResetAuction,
+    handleCreateTopic,
     clearFeedback,
     refreshAll,
   };

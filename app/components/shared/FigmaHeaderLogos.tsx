@@ -1,29 +1,42 @@
 import React from "react";
 import Image from "next/image";
 
-export const FigmaHeaderLogos: React.FC<{ className?: string }> = ({
+export interface FigmaHeaderLogosProps {
+  className?: string;
+}
+
+/**
+ * Header logo lockup used on Login and Registration pages:
+ * [Bid2Build Wordmark Logo] × [Dev Studio Logo]
+ */
+export const FigmaHeaderLogos: React.FC<FigmaHeaderLogosProps> = ({
   className = "",
 }) => {
   return (
-    <div className={`flex items-center justify-center gap-3.5 mb-5 ${className}`}>
-      {/* Red Brackets in White Rounded Squircle (Bid2Build) */}
-      <div className="w-14 h-14 bg-white rounded-2xl shadow-xs border border-slate-200/90 flex items-center justify-center">
-        <span className="text-red-500 font-black text-2xl font-mono leading-none tracking-tighter">
-          [ ]
-        </span>
+    <div className={`flex items-center justify-center gap-4 mb-5 ${className}`}>
+      {/* Bid2Build New Wordmark Logo */}
+      <div className="relative flex items-center justify-center">
+        <Image
+          src="/new_bid2build_logo.png"
+          alt="Bid2Build"
+          width={144}
+          height={48}
+          className="object-contain h-10 w-auto"
+          priority
+        />
       </div>
 
       {/* Cross delimiter */}
-      <span className="text-slate-400 font-light text-lg select-none">×</span>
+      <span className="text-slate-400 font-light text-xl select-none leading-none">×</span>
 
-      {/* Official Dev Studio Circular Emblem (Bid2Build X Dev Studio) */}
-      <div className="w-14 h-14 rounded-full relative overflow-hidden shadow-md shadow-slate-900/10 border border-slate-200/60 bg-black">
+      {/* Dev Studio Logo */}
+      <div className="relative flex items-center justify-center">
         <Image
-          src="/logos/dev-studio-logo.png"
-          alt="Dev Studio Logo"
-          fill
-          sizes="56px"
-          className="object-contain"
+          src="/dev_studio.png"
+          alt="Dev Studio"
+          width={48}
+          height={48}
+          className="object-contain h-10 w-10 rounded-full"
           priority
         />
       </div>

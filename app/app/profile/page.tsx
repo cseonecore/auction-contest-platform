@@ -1,20 +1,16 @@
 "use client";
 
-import React, { useEffect, useState, useId } from "react";
+import React, { useEffect, useState, useId, useCallback } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   X,
-  Clock,
   CheckCircle2,
-  AlertCircle,
-  ExternalLink,
   BookOpen,
-  Award,
   Send,
   Loader2,
 } from "lucide-react";
+import { B2BLogo } from "@/components/shared/B2BLogo";
 
 interface Member {
   id?: string;
@@ -35,6 +31,13 @@ interface AssignedProblem {
   description: string;
 }
 
+interface Submission {
+  id: string;
+  repo_url: string;
+  live_url?: string | null;
+  submitted_at: string;
+}
+
 interface TeamData {
   id: string;
   name: string;
@@ -43,6 +46,7 @@ interface TeamData {
   members: Member[];
   assignedProblems: AssignedProblem[];
   isAuctionLive: boolean;
+  submission?: Submission | null;
 }
 
 export default function ProfilePage() {
@@ -51,110 +55,78 @@ export default function ProfilePage() {
   // Team state
   const [team, setTeam] = useState<TeamData | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // Status & Contest State
-  const [isLive, setIsLive] = useState(false);
-  const [isSubmitted, setIsSubmitted] = useState(false);
-  const [timeBonus, setTimeBonus] = useState(0);
-  const [questionsAnswered, setQuestionsAnswered] = useState(0);
-
-  // Countdown timer state
-  const [timeLeft, setTimeLeft] = useState({
-    hours: 1,
-    minutes: 42,
-    seconds: 24,
-  });
+  const [error, setError] = useState<string | null>(null);
 
   // Modal dialog states
   const [showAuctionNotStartedModal, setShowAuctionNotStartedModal] = useState(false);
   const [showRulesModal, setShowRulesModal] = useState(false);
-  const [showEarnTimeModal, setShowEarnTimeModal] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
 
   // Submit modal inputs
   const [repoUrl, setRepoUrl] = useState("");
   const [liveUrl, setLiveUrl] = useState("");
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-
-  // Quiz / Earn time inputs
-  const [quizAnswer, setQuizAnswer] = useState("");
-  const [quizMessage, setQuizMessage] = useState<string | null>(null);
 
   // IDs for accessibility
   const repoInputId = useId();
   const liveInputId = useId();
 
   // Load Team Profile
-  useEffect(() => {
-    async function loadProfile() {
-      try {
-        let storedTeamName = "";
-        let storedTeamId = "";
+  const loadProfile = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
 
-        if (typeof window !== "undefined") {
-          const raw = localStorage.getItem("b2b_logged_in_team");
-          if (raw) {
-            try {
-              const parsed = JSON.parse(raw);
-              storedTeamName = parsed.name || "";
-              storedTeamId = parsed.id || "";
-            } catch {
-              // ignore
-            }
+      let storedTeamName = "";
+      let storedTeamId = "";
+
+      if (typeof window !== "undefined") {
+        const raw = localStorage.getItem("b2b_logged_in_team");
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            storedTeamName = parsed.name || "";
+            storedTeamId = parsed.id || "";
+          } catch {
+            // ignore parse errors
           }
         }
-
-        // If no team in localStorage, redirect to login
-        if (!storedTeamName && !storedTeamId) {
-          router.push("/login");
-          return;
-        }
-
-        const res = await fetch(
-          `/api/team/profile?${storedTeamId ? `id=${storedTeamId}` : `name=${encodeURIComponent(storedTeamName)}`}`
-        );
-        const data = await res.json();
-
-        if (res.ok && data.team) {
-          setTeam(data.team);
-          setIsLive(data.team.isAuctionLive || false);
-        } else {
-          // Team not found in Supabase! Clear invalid session and redirect to login
-          if (typeof window !== "undefined") {
-            localStorage.removeItem("b2b_logged_in_team");
-          }
-          router.push("/login");
-          return;
-        }
-      } catch (err) {
-        console.error("Error loading profile:", err);
-        router.push("/login");
-      } finally {
-        setLoading(false);
       }
-    }
 
-    loadProfile();
-  }, []);
+      // No team in localStorage — not authenticated
+      if (!storedTeamName && !storedTeamId) {
+        router.replace("/login");
+        return;
+      }
 
-  // Countdown timer effect
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev.seconds > 0) {
-          return { ...prev, seconds: prev.seconds - 1 };
-        } else if (prev.minutes > 0) {
-          return { ...prev, minutes: prev.minutes - 1, seconds: 59 };
-        } else if (prev.hours > 0) {
-          return { hours: prev.hours - 1, minutes: 59, seconds: 59 };
+      const res = await fetch(
+        `/api/team/profile?${storedTeamId ? `id=${storedTeamId}` : `name=${encodeURIComponent(storedTeamName)}`}`
+      );
+      const data = await res.json();
+
+      if (res.ok && data.team) {
+        setTeam(data.team);
+
+        // Pre-fill submit modal if previously submitted
+        if (data.team.submission) {
+          setRepoUrl(data.team.submission.repo_url || "");
+          setLiveUrl(data.team.submission.live_url || "");
         }
-        return prev;
-      });
-    }, 1000);
+      } else {
+        setError(data.error || "Failed to load team profile.");
+      }
+    } catch {
+      setError("Network error. Please check your connection and try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, [router]);
 
-    return () => clearInterval(interval);
-  }, []);
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
 
   const handleLogout = () => {
     if (typeof window !== "undefined") {
@@ -164,86 +136,116 @@ export default function ProfilePage() {
   };
 
   const handleEnterAuction = () => {
-    if (!isLive) {
-      // Trigger Figma Image 3 Modal: Auction not yet started!
+    if (!team?.isAuctionLive) {
       setShowAuctionNotStartedModal(true);
     } else {
       router.push("/auction");
     }
   };
 
-  const handleEarnTimeSubmit = (e: React.FormEvent) => {
+  const handleSubmitSolution = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!quizAnswer.trim()) return;
-
-    if (quizAnswer.trim().toLowerCase().includes("next") || quizAnswer.trim().toLowerCase().includes("react") || quizAnswer.trim().length > 2) {
-      setTimeBonus((prev) => prev + 10);
-      setQuestionsAnswered((prev) => prev + 1);
-      setQuizMessage("Awesome! You earned +10 minutes bonus time for your team!");
-      setTimeout(() => {
-        setShowEarnTimeModal(false);
-        setQuizMessage(null);
-        setQuizAnswer("");
-      }, 1500);
-    } else {
-      setQuizMessage("Try again! Answer must be a valid tech stack or concept.");
-    }
-  };
-
-  const handleSubmitSolution = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!repoUrl.trim()) return;
+    if (!repoUrl.trim() || !team) return;
 
     setSubmitting(true);
-    setTimeout(() => {
+    setSubmitError(null);
+
+    try {
+      const res = await fetch("/api/submission", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          teamId: team.id,
+          repoUrl: repoUrl.trim(),
+          liveUrl: liveUrl.trim() || undefined,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        setSubmitSuccess(true);
+        // Update local team state to show submitted
+        setTeam((prev) =>
+          prev
+            ? {
+                ...prev,
+                submission: {
+                  id: "submitted",
+                  repo_url: repoUrl.trim(),
+                  live_url: liveUrl.trim() || null,
+                  submitted_at: new Date().toISOString(),
+                },
+              }
+            : prev
+        );
+        setTimeout(() => {
+          setShowSubmitModal(false);
+          setSubmitSuccess(false);
+        }, 2000);
+      } else {
+        setSubmitError(data.error || "Submission failed. Please try again.");
+      }
+    } catch {
+      setSubmitError("Network error. Please try again.");
+    } finally {
       setSubmitting(false);
-      setIsSubmitted(true);
-      setSubmitSuccess(true);
-      setTimeout(() => {
-        setShowSubmitModal(false);
-        setSubmitSuccess(false);
-      }, 1500);
-    }, 800);
+    }
   };
 
   if (loading) {
     return (
       <div className="min-h-screen bg-[#141518] text-white flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-8 h-8 animate-spin text-[#ff5500]" />
+          <Loader2 className="w-8 h-8 animate-spin text-[#fe5102]" />
           <p className="text-xs text-slate-400">Loading your profile...</p>
         </div>
       </div>
     );
   }
 
-  const currentTeam = team || {
-    id: "32254098-4572-472d-b75e-1dc51ebcb273",
-    name: "Team Name",
-    balance: 100,
-    members: [],
-    assignedProblems: [],
-    isAuctionLive: false,
-  };
+  if (error) {
+    return (
+      <div className="min-h-screen bg-[#141518] text-white flex items-center justify-center p-6">
+        <div className="bg-[#22242a] border border-white/10 rounded-2xl p-8 max-w-sm w-full text-center space-y-4">
+          <div className="w-12 h-12 rounded-full border-2 border-red-400/60 flex items-center justify-center mx-auto text-red-400 font-bold text-xl">!</div>
+          <h2 className="text-base font-bold text-white">Could not load profile</h2>
+          <p className="text-xs text-slate-400 leading-relaxed">{error}</p>
+          <div className="flex gap-3 justify-center">
+            <button
+              type="button"
+              onClick={loadProfile}
+              className="bg-[#fe5102] hover:bg-[#d94502] text-white text-xs font-semibold px-5 py-2 rounded-full transition-all cursor-pointer"
+            >
+              Try Again
+            </button>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="bg-[#374151] hover:bg-[#4b5563] text-white text-xs font-semibold px-5 py-2 rounded-full transition-all cursor-pointer"
+            >
+              Log out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-  const pad = (n: number) => String(n).padStart(2, "0");
+  if (!team) return null;
+
+  const isSubmitted = !!team.submission;
+  const captainMember = team.members.find((m) => m.isCaptain);
+  const characterIndex = ((team.members.length - 1) % 10) + 1;
 
   return (
-    <div className="min-h-screen bg-[#141518] text-white selection:bg-orange-500 selection:text-white flex flex-col justify-between p-4 sm:p-8 md:p-12 font-sans select-none">
+    <div className="min-h-screen bg-[#141518] text-white selection:bg-[#fe5102] selection:text-white flex flex-col justify-between p-4 sm:p-8 md:p-12 font-sans select-none">
       <div className="max-w-6xl w-full mx-auto space-y-8">
         {/* ========================================================= */}
-        {/* TOP NAVBAR: [ ] Bid2Build | Contest Rules | Log out       */}
+        {/* TOP NAVBAR                                                 */}
         {/* ========================================================= */}
         <header className="flex items-center justify-between pt-2 pb-4">
-          {/* Left: Brand Logo */}
-          <Link href="/" className="inline-flex items-center gap-2 select-none group">
-            <span className="text-red-500 font-extrabold text-2xl font-mono leading-none group-hover:scale-105 transition-transform">
-              [ ]
-            </span>
-            <span className="text-white font-bold text-xl tracking-tight">Bid2Build</span>
-          </Link>
-
-          {/* Right: Actions */}
+          <B2BLogo variant="light" height={28} />
           <div className="flex items-center gap-6 text-sm">
             <button
               type="button"
@@ -263,20 +265,23 @@ export default function ProfilePage() {
         </header>
 
         {/* ========================================================= */}
-        {/* SECTION 1: TEAM OVERVIEW & AUCTION STATUS BAR             */}
+        {/* SECTION 1: TEAM OVERVIEW & STATUS BAR                     */}
         {/* ========================================================= */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pt-2">
-          {/* LEFT: Team Avatar, Name & 4 Badges */}
+        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6 pt-2">
+          {/* LEFT: Team Avatar, Name & Badges */}
           <div className="flex items-center gap-4 sm:gap-5">
-            {/* Mascot Avatar in White Circular Frame */}
-            <div className="w-18 h-18 sm:w-22 sm:h-22 rounded-full bg-white flex items-center justify-center p-2 shrink-0 border-2 border-slate-700/60 shadow-xl relative overflow-hidden">
+            {/* Character Avatar */}
+            <div className="w-18 h-18 sm:w-20 sm:h-20 rounded-full bg-white flex items-center justify-center shrink-0 border-2 border-slate-700/60 shadow-xl relative overflow-hidden">
               <Image
-                src="/characters/Character-01.png"
-                alt="Team Character Mascot"
+                src={`/characters/Character-0${characterIndex}.png`}
+                alt="Team Character"
                 fill
-                sizes="(max-width: 640px) 72px, 88px"
+                sizes="(max-width: 640px) 72px, 80px"
                 className="object-contain p-1"
                 priority
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = "/characters/Character-01.png";
+                }}
               />
             </div>
 
@@ -284,49 +289,39 @@ export default function ProfilePage() {
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-                  {currentTeam.name}
+                  {team.name}
                 </h1>
-                {/* Blue Verified Checkmark */}
-                <span className="w-5 h-5 rounded-full bg-[#38bdf8] text-white flex items-center justify-center text-xs font-bold shadow-xs">
+                <span className="w-5 h-5 rounded-full bg-[#38bdf8] text-white flex items-center justify-center text-xs font-bold shadow-xs flex-shrink-0">
                   ✓
                 </span>
               </div>
 
-              {/* 4 Badges (Pills) */}
+              {/* Badges */}
               <div className="flex flex-wrap items-center gap-2">
-                {/* 1. Coin Balance */}
                 <span className="bg-[#dcfce7] text-[#15803d] font-semibold text-xs px-3 py-1 rounded-full shadow-2xs">
-                  Coin Balance : {currentTeam.balance}
+                  Coin Balance: {team.balance}
                 </span>
-
-                {/* 2. Problem Assigned */}
                 <span className="bg-[#ffedd5] text-[#9a3412] font-semibold text-xs px-3 py-1 rounded-full shadow-2xs">
-                  Problem Assigned : {currentTeam.assignedProblems.length}
+                  Problem{team.assignedProblems.length !== 1 ? "s" : ""} Assigned: {team.assignedProblems.length}
                 </span>
-
-                {/* 3. Time Bonus */}
-                <span className="bg-[#ffedd5] text-[#9a3412] font-semibold text-xs px-3 py-1 rounded-full shadow-2xs">
-                  Time Bonus : {timeBonus > 0 ? `+${timeBonus} min` : "0"}
-                </span>
-
-                {/* 4. Questions Answered */}
-                <span className="bg-[#e0e7ff] text-[#3730a3] font-semibold text-xs px-3 py-1 rounded-full shadow-2xs">
-                  Questions Answered : {questionsAnswered}
-                </span>
+                {captainMember && (
+                  <span className="bg-[#e0e7ff] text-[#3730a3] font-semibold text-xs px-3 py-1 rounded-full shadow-2xs">
+                    Captain: {captainMember.name.split(" ")[0]}
+                  </span>
+                )}
               </div>
             </div>
           </div>
 
-          {/* RIGHT: Status & Timer Box (Dark card with golden timer) */}
-          <div className="bg-[#22242a] rounded-2xl p-4 sm:p-5 border border-white/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5 shadow-lg lg:min-w-[420px]">
-            {/* Status indicators */}
-            <div className="space-y-2.5 text-xs text-white font-medium">
+          {/* RIGHT: Status Card */}
+          <div className="bg-[#22242a] rounded-2xl p-4 sm:p-5 border border-white/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5 shadow-lg lg:min-w-[320px]">
+            <div className="space-y-2.5 text-xs font-medium">
               <div className="flex items-center gap-2.5">
                 <span className="text-slate-300">Auction Status</span>
-                {isLive ? (
+                {team.isAuctionLive ? (
                   <span className="bg-[#dcfce7] text-[#15803d] font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-2xs">
                     <span className="w-2 h-2 rounded-full bg-[#15803d] animate-pulse" />
-                    • Live
+                    Live
                   </span>
                 ) : (
                   <span className="bg-[#fef9c3] text-[#854d0e] font-bold px-2.5 py-0.5 rounded-full shadow-2xs">
@@ -336,29 +331,18 @@ export default function ProfilePage() {
               </div>
 
               <div className="flex items-center gap-2.5">
-                <span className="text-slate-300">Submission Status</span>
+                <span className="text-slate-300">Submission</span>
                 {isSubmitted ? (
                   <span className="bg-[#dcfce7] text-[#15803d] font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-2xs">
-                    • Submitted
+                    <CheckCircle2 className="w-3 h-3" />
+                    Submitted
                   </span>
                 ) : (
-                  <span className="bg-[#ffe4e6] text-[#be123c] font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-2xs">
-                    • Not Submitted
+                  <span className="bg-[#ffe4e6] text-[#be123c] font-bold px-2.5 py-0.5 rounded-full shadow-2xs">
+                    Not Submitted
                   </span>
                 )}
               </div>
-            </div>
-
-            {/* Golden Countdown Timer Card */}
-            <div className="bg-[#fef3c7] text-[#78350f] rounded-xl px-5 py-3 text-center w-full sm:w-auto min-w-[160px] shadow-sm">
-              <span className="text-[11px] font-medium text-[#92400e] block">
-                {isLive ? "Time left to submit" : "Contest Starts in"}
-              </span>
-              <span className="text-sm sm:text-base font-extrabold tracking-tight text-[#78350f] mt-0.5 block font-mono">
-                {isLive
-                  ? `${timeLeft.hours}hr : ${pad(timeLeft.minutes)}min : ${pad(timeLeft.seconds)}sec`
-                  : `7 : 16 : ${pad(timeLeft.minutes)} : ${pad(timeLeft.seconds)}`}
-              </span>
             </div>
           </div>
         </div>
@@ -367,91 +351,56 @@ export default function ProfilePage() {
         {/* SECTION 2: TEAM MEMBERS                                   */}
         {/* ========================================================= */}
         <section className="space-y-3 pt-2">
-          <h2 className="text-sm font-semibold text-slate-400 tracking-wide">
+          <h2 className="text-sm font-semibold text-slate-400 tracking-wide uppercase">
             Team Members
           </h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {currentTeam.members.map((member, index) => (
-              <div
-                key={member.id || index}
-                className="bg-[#22242a] rounded-2xl p-5 border border-white/5 space-y-2 shadow-md hover:border-white/10 transition-colors"
-              >
-                {/* Member Name and Captain Pill */}
-                <div className="flex items-center justify-between gap-2 border-b border-white/5 pb-2.5">
-                  <h3 className="text-base font-bold text-white tracking-tight">
-                    {member.name}
-                  </h3>
-                  {member.isCaptain && (
-                    <span className="bg-[#bbf7d0] text-[#14532d] text-[11px] font-bold px-2.5 py-0.5 rounded-full shadow-2xs">
-                      Captain
-                    </span>
-                  )}
-                </div>
-
-                {/* Details list */}
-                <div className="text-xs space-y-1 text-slate-300 font-normal">
-                  <p>
-                    <span className="text-slate-400">USN : </span>
-                    <span className="font-mono text-white">{member.usn}</span>
-                  </p>
-                  <p>
-                    <span className="text-slate-400">Branch : </span>
-                    <span>{member.branch || "CSE"}</span>
-                  </p>
-                  <p>
-                    <span className="text-slate-400">Semester : </span>
-                    <span>{member.semester || "5"}</span>
-                  </p>
-                  <p>
-                    <span className="text-slate-400">Phone : </span>
-                    <span className="font-mono">{member.phone || "+91 98765 43210"}</span>
-                  </p>
-                  <p className="truncate">
-                    <span className="text-slate-400">Email : </span>
-                    <span className="font-mono text-slate-300">{member.email}</span>
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* ========================================================= */}
-        {/* SECTION 3: ASSIGNED PROBLEMS                              */}
-        {/* ========================================================= */}
-        <section className="space-y-3 pt-2">
-          <h2 className="text-sm font-semibold text-slate-400 tracking-wide">
-            Assigned Problems
-          </h2>
-
-          {currentTeam.assignedProblems.length === 0 ? (
-            /* STATE A: No Problems Selected (Image 2) */
-            <div className="bg-[#22242a] rounded-2xl p-6 border border-white/5 max-w-md shadow-md space-y-1.5">
-              <h3 className="text-base font-bold text-white tracking-tight">
-                No Problems Selected
-              </h3>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Once you bid and win your problem statement they&apos;ll appear here
-              </p>
+          {team.members.length === 0 ? (
+            <div className="bg-[#22242a] rounded-2xl p-6 border border-white/5 max-w-sm">
+              <p className="text-xs text-slate-400">No member information available.</p>
             </div>
           ) : (
-            /* STATE B: Problems Assigned (Image 1) */
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-3xl">
-              {currentTeam.assignedProblems.map((prob) => (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {team.members.map((member, index) => (
                 <div
-                  key={prob.id}
-                  className="bg-[#22242a] rounded-2xl p-5 border border-white/5 space-y-2 shadow-md"
+                  key={member.id || index}
+                  className="bg-[#22242a] rounded-2xl p-5 border border-white/5 space-y-2 shadow-md hover:border-white/10 transition-colors"
                 >
-                  <h3 className="text-base font-bold text-white tracking-tight">
-                    {prob.title || `Problem ${prob.number}`}
-                  </h3>
-                  <p className="text-xs font-semibold text-slate-300">
-                    {prob.statement}
-                  </p>
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    {prob.description}
-                  </p>
+                  <div className="flex items-center justify-between gap-2 border-b border-white/5 pb-2.5">
+                    <h3 className="text-base font-bold text-white tracking-tight">
+                      {member.name}
+                    </h3>
+                    {member.isCaptain && (
+                      <span className="bg-[#bbf7d0] text-[#14532d] text-[11px] font-bold px-2.5 py-0.5 rounded-full shadow-2xs flex-shrink-0">
+                        Captain
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="text-xs space-y-1 text-slate-300">
+                    <p>
+                      <span className="text-slate-400">USN: </span>
+                      <span className="font-mono text-white">{member.usn}</span>
+                    </p>
+                    <p>
+                      <span className="text-slate-400">Branch: </span>
+                      <span>{member.branch || "—"}</span>
+                    </p>
+                    <p>
+                      <span className="text-slate-400">Semester: </span>
+                      <span>{member.semester || "—"}</span>
+                    </p>
+                    {member.phone && member.phone !== "+91 00000 00000" && (
+                      <p>
+                        <span className="text-slate-400">Phone: </span>
+                        <span className="font-mono">{member.phone}</span>
+                      </p>
+                    )}
+                    <p className="truncate">
+                      <span className="text-slate-400">Email: </span>
+                      <span className="font-mono text-slate-300">{member.email}</span>
+                    </p>
+                  </div>
                 </div>
               ))}
             </div>
@@ -459,10 +408,90 @@ export default function ProfilePage() {
         </section>
 
         {/* ========================================================= */}
-        {/* SECTION 4: BOTTOM ACTION BUTTONS                          */}
+        {/* SECTION 3: ASSIGNED PROBLEMS                              */}
+        {/* ========================================================= */}
+        <section className="space-y-3 pt-2">
+          <h2 className="text-sm font-semibold text-slate-400 tracking-wide uppercase">
+            Assigned Problems
+          </h2>
+
+          {team.assignedProblems.length === 0 ? (
+            <div className="bg-[#22242a] rounded-2xl p-6 border border-white/5 max-w-md shadow-md space-y-1.5">
+              <h3 className="text-base font-bold text-white tracking-tight">
+                No Problems Selected
+              </h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Once you bid and win a problem statement it will appear here
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-3xl">
+              {team.assignedProblems.map((prob) => (
+                <div
+                  key={prob.id}
+                  className="bg-[#22242a] rounded-2xl p-5 border border-white/5 space-y-2 shadow-md"
+                >
+                  <h3 className="text-base font-bold text-white tracking-tight">
+                    {prob.title || `Problem ${prob.number}`}
+                  </h3>
+                  {prob.statement && (
+                    <p className="text-xs font-semibold text-slate-300">
+                      {prob.statement}
+                    </p>
+                  )}
+                  {prob.description && (
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      {prob.description}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Submission status display (if already submitted) */}
+        {isSubmitted && team.submission && (
+          <section className="pt-2">
+            <div className="bg-[#0f2a1a] border border-emerald-700/40 rounded-2xl p-5 max-w-xl space-y-2">
+              <div className="flex items-center gap-2 text-emerald-400">
+                <CheckCircle2 className="w-4 h-4" />
+                <span className="text-sm font-bold text-white">Solution Submitted</span>
+              </div>
+              <div className="text-xs space-y-1 text-slate-300">
+                <p>
+                  <span className="text-slate-400">Repository: </span>
+                  <a
+                    href={team.submission.repo_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[#fe5102] hover:underline font-mono break-all"
+                  >
+                    {team.submission.repo_url}
+                  </a>
+                </p>
+                {team.submission.live_url && (
+                  <p>
+                    <span className="text-slate-400">Live Demo: </span>
+                    <a
+                      href={team.submission.live_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#fe5102] hover:underline font-mono break-all"
+                    >
+                      {team.submission.live_url}
+                    </a>
+                  </p>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ========================================================= */}
+        {/* SECTION 4: ACTION BUTTONS                                 */}
         {/* ========================================================= */}
         <div className="flex flex-wrap items-center gap-4 pt-4 pb-6">
-          {/* 1. Enter Auction Button */}
           <button
             type="button"
             onClick={handleEnterAuction}
@@ -471,33 +500,26 @@ export default function ProfilePage() {
             Enter Auction
           </button>
 
-          {/* 2. Earn Time Button */}
           <button
             type="button"
-            onClick={() => setShowEarnTimeModal(true)}
-            className="bg-[#374151] hover:bg-[#4b5563] active:scale-95 text-white font-semibold text-xs sm:text-sm px-7 py-2.5 rounded-full transition-all shadow-sm cursor-pointer"
+            onClick={() => {
+              setSubmitError(null);
+              setSubmitSuccess(false);
+              setShowSubmitModal(true);
+            }}
+            className="bg-[#fe5102] hover:bg-[#d94502] active:scale-95 text-white font-semibold text-xs sm:text-sm px-8 py-2.5 rounded-full transition-all shadow-md shadow-orange-500/25 cursor-pointer"
           >
-            Earn Time
-          </button>
-
-          {/* 3. Submit Solution Button */}
-          <button
-            type="button"
-            onClick={() => setShowSubmitModal(true)}
-            className="bg-[#ff5500] hover:bg-[#e64d00] active:scale-95 text-white font-semibold text-xs sm:text-sm px-8 py-2.5 rounded-full transition-all shadow-md shadow-orange-500/25 cursor-pointer"
-          >
-            Submit Solution
+            {isSubmitted ? "Update Submission" : "Submit Solution"}
           </button>
         </div>
       </div>
 
       {/* ========================================================= */}
-      {/* MODAL 1: "Auction not yet started!" (Figma Image 3)        */}
+      {/* MODAL 1: Auction Not Started                              */}
       {/* ========================================================= */}
       {showAuctionNotStartedModal && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
           <div className="bg-[#22242a] border border-white/10 rounded-2xl p-7 max-w-sm w-full mx-auto text-center shadow-2xl relative animate-in zoom-in-95 duration-150">
-            {/* Close X in corner */}
             <button
               type="button"
               onClick={() => setShowAuctionNotStartedModal(false)}
@@ -507,22 +529,17 @@ export default function ProfilePage() {
               <X className="w-4 h-4" />
             </button>
 
-            {/* White Circular Exclamation Icon */}
-            <div className="w-13 h-13 rounded-full border-2 border-white flex items-center justify-center mx-auto mb-4 text-white text-2xl font-bold">
+            <div className="w-12 h-12 rounded-full border-2 border-white flex items-center justify-center mx-auto mb-4 text-white text-2xl font-bold">
               !
             </div>
 
-            {/* Modal Heading */}
             <h2 className="text-lg font-bold text-white mb-2">
               Auction not yet started!
             </h2>
-
-            {/* Modal Description */}
             <p className="text-xs text-slate-300 leading-relaxed mb-6">
-              Please wait for the admin or host of Bid2Build start live auctioning
+              Please wait for the host to start live auctioning. You will be able to enter once the auction goes live.
             </p>
 
-            {/* Dismiss Button */}
             <button
               type="button"
               onClick={() => setShowAuctionNotStartedModal(false)}
@@ -535,7 +552,7 @@ export default function ProfilePage() {
       )}
 
       {/* ========================================================= */}
-      {/* MODAL 2: Contest Rules Modal                              */}
+      {/* MODAL 2: Contest Rules                                    */}
       {/* ========================================================= */}
       {showRulesModal && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
@@ -549,7 +566,7 @@ export default function ProfilePage() {
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-2 mb-4 text-[#ff5500]">
+            <div className="flex items-center gap-2 mb-4 text-[#fe5102]">
               <BookOpen className="w-5 h-5" />
               <h2 className="text-lg font-bold text-white">Bid2Build Contest Rules</h2>
             </div>
@@ -574,20 +591,24 @@ export default function ProfilePage() {
               </div>
 
               <div>
-                <h4 className="font-bold text-white text-sm mb-1">3. Bonus Time & Unspent Coins</h4>
+                <h4 className="font-bold text-white text-sm mb-1">3. Bidding Rules</h4>
                 <p>
-                  • Earn time bonuses via mini-challenges (+10 min per verified challenge).
+                  • Opening bid minimum: 10 coins. Minimum raise: 10 coins above the current bid.
                   <br />
-                  • Any coins left unspent after the auction convert to bonus evaluation points!
+                  • A team cannot re-bid while already leading a slot.
+                  <br />
+                  • Each team may win at most one slot per round.
                 </p>
               </div>
 
               <div>
                 <h4 className="font-bold text-white text-sm mb-1">4. Submission Criteria</h4>
                 <p>
-                  • Submit your public GitHub repository and live demo URL before the countdown reaches zero.
+                  • Submit your public GitHub repository and optional live demo URL before the countdown reaches zero.
                   <br />
                   • Submissions are evaluated on implementation depth, UI fidelity, and code quality.
+                  <br />
+                  • Unspent coins after the auction convert to bonus evaluation points.
                 </p>
               </div>
             </div>
@@ -596,7 +617,7 @@ export default function ProfilePage() {
               <button
                 type="button"
                 onClick={() => setShowRulesModal(false)}
-                className="bg-[#ff5500] hover:bg-[#e64d00] text-white text-xs font-semibold px-6 py-2 rounded-full cursor-pointer transition-all"
+                className="bg-[#fe5102] hover:bg-[#d94502] text-white text-xs font-semibold px-6 py-2 rounded-full cursor-pointer transition-all"
               >
                 Close Rules
               </button>
@@ -606,78 +627,7 @@ export default function ProfilePage() {
       )}
 
       {/* ========================================================= */}
-      {/* MODAL 3: Earn Time Challenge Modal                         */}
-      {/* ========================================================= */}
-      {showEarnTimeModal && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-          <div className="bg-[#22242a] border border-white/10 rounded-2xl p-6 sm:p-7 max-w-md w-full mx-auto text-left shadow-2xl relative">
-            <button
-              type="button"
-              onClick={() => setShowEarnTimeModal(false)}
-              className="absolute right-4 top-4 text-slate-400 hover:text-white transition-colors cursor-pointer p-1"
-              aria-label="Close modal"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="flex items-center gap-2 mb-3 text-amber-400">
-              <Award className="w-5 h-5" />
-              <h2 className="text-base font-bold text-white">Earn Time Bonus (+10 min)</h2>
-            </div>
-
-            <p className="text-xs text-slate-300 mb-4">
-              Answer this quick challenge question correctly to add <strong>+10 minutes</strong> to your team&apos;s submission timer:
-            </p>
-
-            <form onSubmit={handleEarnTimeSubmit} className="space-y-4">
-              <div className="bg-[#1a1c20] p-3.5 rounded-xl border border-white/5">
-                <span className="text-[11px] text-amber-400 font-semibold block mb-1">
-                  Challenge Q{questionsAnswered + 1}:
-                </span>
-                <p className="text-xs text-white font-medium">
-                  Which React-based framework is used for full-stack rendering in Bid2Build?
-                </p>
-              </div>
-
-              <div>
-                <input
-                  type="text"
-                  required
-                  placeholder="Your answer (e.g., Next.js)"
-                  value={quizAnswer}
-                  onChange={(e) => setQuizAnswer(e.target.value)}
-                  className="w-full bg-[#18191c] border border-white/15 text-white text-xs px-3.5 py-2.5 rounded-xl outline-none focus:border-amber-400"
-                />
-              </div>
-
-              {quizMessage && (
-                <div className={`p-2.5 rounded-xl text-xs font-semibold ${quizMessage.includes("Awesome") ? "bg-emerald-950/80 text-emerald-300 border border-emerald-500/30" : "bg-red-950/80 text-red-300 border border-red-500/30"}`}>
-                  {quizMessage}
-                </div>
-              )}
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowEarnTimeModal(false)}
-                  className="px-4 py-2 rounded-full text-xs text-slate-300 hover:text-white"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs px-6 py-2 rounded-full transition-all cursor-pointer shadow-sm"
-                >
-                  Submit Answer
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================= */}
-      {/* MODAL 4: Submit Solution Modal                             */}
+      {/* MODAL 3: Submit Solution                                  */}
       {/* ========================================================= */}
       {showSubmitModal && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
@@ -691,18 +641,22 @@ export default function ProfilePage() {
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-2 mb-2 text-[#ff5500]">
+            <div className="flex items-center gap-2 mb-2 text-[#fe5102]">
               <Send className="w-5 h-5" />
-              <h2 className="text-base font-bold text-white">Submit Team Solution</h2>
+              <h2 className="text-base font-bold text-white">
+                {isSubmitted ? "Update Team Submission" : "Submit Team Solution"}
+              </h2>
             </div>
             <p className="text-xs text-slate-300 mb-4">
-              Enter your project links before the contest ends to submit your solution for evaluation:
+              {isSubmitted
+                ? "Update your project links at any time before the contest ends."
+                : "Enter your project links before the contest ends to submit your solution for evaluation."}
             </p>
 
             <form onSubmit={handleSubmitSolution} className="space-y-3.5">
               <div>
                 <label htmlFor={repoInputId} className="text-xs font-semibold text-slate-300 block mb-1">
-                  GitHub Repository URL *
+                  GitHub Repository URL <span className="text-red-400">*</span>
                 </label>
                 <input
                   id={repoInputId}
@@ -711,13 +665,13 @@ export default function ProfilePage() {
                   placeholder="https://github.com/team/project"
                   value={repoUrl}
                   onChange={(e) => setRepoUrl(e.target.value)}
-                  className="w-full bg-[#18191c] border border-white/15 text-white text-xs px-3.5 py-2.5 rounded-xl outline-none focus:border-[#ff5500]"
+                  className="w-full bg-[#18191c] border border-white/15 text-white text-xs px-3.5 py-2.5 rounded-xl outline-none focus:border-[#fe5102] transition-colors"
                 />
               </div>
 
               <div>
                 <label htmlFor={liveInputId} className="text-xs font-semibold text-slate-300 block mb-1">
-                  Live Deployment URL (Optional)
+                  Live Deployment URL <span className="text-slate-500">(Optional)</span>
                 </label>
                 <input
                   id={liveInputId}
@@ -725,14 +679,20 @@ export default function ProfilePage() {
                   placeholder="https://project.vercel.app"
                   value={liveUrl}
                   onChange={(e) => setLiveUrl(e.target.value)}
-                  className="w-full bg-[#18191c] border border-white/15 text-white text-xs px-3.5 py-2.5 rounded-xl outline-none focus:border-[#ff5500]"
+                  className="w-full bg-[#18191c] border border-white/15 text-white text-xs px-3.5 py-2.5 rounded-xl outline-none focus:border-[#fe5102] transition-colors"
                 />
               </div>
+
+              {submitError && (
+                <div className="p-2.5 rounded-xl bg-red-950/80 text-red-300 border border-red-500/30 text-xs font-semibold">
+                  {submitError}
+                </div>
+              )}
 
               {submitSuccess && (
                 <div className="p-2.5 rounded-xl bg-emerald-950/80 text-emerald-300 border border-emerald-500/30 text-xs font-semibold flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span>Solution submitted successfully! Submission status updated.</span>
+                  <span>Solution submitted successfully!</span>
                 </div>
               )}
 
@@ -740,14 +700,14 @@ export default function ProfilePage() {
                 <button
                   type="button"
                   onClick={() => setShowSubmitModal(false)}
-                  className="px-4 py-2 rounded-full text-xs text-slate-300 hover:text-white"
+                  className="px-4 py-2 rounded-full text-xs text-slate-300 hover:text-white transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="bg-[#ff5500] hover:bg-[#e64d00] text-white font-bold text-xs px-6 py-2 rounded-full transition-all cursor-pointer shadow-md shadow-orange-500/25 flex items-center gap-1.5 disabled:opacity-60"
+                  className="bg-[#fe5102] hover:bg-[#d94502] text-white font-bold text-xs px-6 py-2 rounded-full transition-all cursor-pointer shadow-md shadow-orange-500/25 flex items-center gap-1.5 disabled:opacity-60"
                 >
                   {submitting ? (
                     <>
@@ -755,7 +715,7 @@ export default function ProfilePage() {
                       <span>Submitting...</span>
                     </>
                   ) : (
-                    <span>Confirm Submission</span>
+                    <span>{isSubmitted ? "Update Submission" : "Confirm Submission"}</span>
                   )}
                 </button>
               </div>
@@ -765,8 +725,8 @@ export default function ProfilePage() {
       )}
 
       {/* Footer */}
-      <footer className="text-center text-[11px] text-slate-600 pt-8">
-        © 2026 Bid2Build Contest Platform • CSEONECORE
+      <footer className="text-center text-[11px] text-slate-700 pt-8 max-w-6xl mx-auto w-full">
+        © 2026 Bid2Build · CSEONECORE
       </footer>
     </div>
   );

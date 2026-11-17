@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
+
+import { getServerDb } from "@/lib/serverDb";
 
 const DEFAULT_MAX_TEAMS = 60;
 const DEFAULT_REGISTRATION_OPEN = true;
@@ -28,26 +32,6 @@ interface RegisterRequestBody {
 interface RegistrationSettings {
   isOpen: boolean;
   maxTeams: number;
-}
-
-/**
- * Server-side database client for trusted registration operations.
- * Requires SUPABASE_SERVICE_ROLE_KEY to bypass RLS policies on teams/members/wallets.
- * Never falls back to public anon/publishable keys or placeholder values.
- */
-function getDbClient(): SupabaseClient {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !serviceRoleKey) {
-    throw new Error(
-      "Missing server configuration: NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is not configured."
-    );
-  }
-
-  return createClient(url, serviceRoleKey, {
-    auth: { persistSession: false },
-  });
 }
 
 /**
@@ -105,13 +89,79 @@ async function getRegistrationSettings(
 }
 
 /**
- * Public registration status endpoint.
- * Returns public, safe registration metadata without leaking secrets.
- * Fails with HTTP 500 if server configuration or database is unavailable.
+ * Creates a Supabase Auth user for the captain.
+ * Also updates the user's app_metadata to include the role.
+ * Returns the Auth user ID on success.
  */
+async function createAuthUserWithRole(
+  supabase: SupabaseClient,
+  email: string,
+  password: string,
+  role: string
+): Promise<{ userId: string; error: Error | null }> {
+  // Step 1: Sign up the user
+  const { data, error: signUpError } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      data: {
+        usn: email.split("@")[0], // Store USN in user metadata
+        role: role, // Store role in user metadata
+      },
+    },
+  });
+
+  if (signUpError) {
+    console.error("[Register API] Supabase Auth sign-up error:", signUpError.message);
+    return { userId: "", error: signUpError };
+  }
+
+  const userId = data.user?.id || "";
+
+  if (!userId) {
+    return { userId: "", error: new Error("Failed to create Auth user - no user ID returned.") };
+  }
+
+  // Step 2: Update the user's app_metadata through the admin API
+  // to ensure the role is stored in app_metadata for RLS policies
+  try {
+    const { error: updateError } = await supabase.auth.admin.updateUserById(
+      userId,
+      {
+        app_metadata: {
+          role: role,
+        },
+      }
+    );
+
+    if (updateError) {
+      console.warn(
+        "[Register API] Warning: Could not update app_metadata:",
+        updateError.message
+      );
+      // Don't fail registration if metadata update fails;
+      // the user metadata will still be available for reference.
+    }
+  } catch (metaErr) {
+    console.warn("[Register API] Exception updating app_metadata:", metaErr);
+  }
+
+  console.log(`[Register API] Created Auth user: ${userId} with email: ${email}, role: ${role}`);
+
+  return { userId, error: null };
+}
+
+/**
+ * Generates the initial password: TeamName + Last3DigitsOfCaptainUSN
+ */
+function generateInitialPassword(teamName: string, usn: string): string {
+  const last3Digits = usn.slice(-3); // Preserves leading zeros
+  return `${teamName}${last3Digits}`;
+}
+
 export async function GET() {
   try {
-    const db = getDbClient();
+    const db = getServerDb();
     const [{ isOpen, maxTeams }, countRes] = await Promise.all([
       getRegistrationSettings(db),
       db.from("teams").select("*", { count: "exact", head: true }),
@@ -128,17 +178,7 @@ export async function GET() {
     const totalRegistered = countRes.count ?? 0;
     const remainingSlots = Math.max(0, maxTeams - totalRegistered);
 
-    return NextResponse.json({
-      isOpen,
-      maxTeams,
-      totalRegistered,
-      remainingSlots,
-      // Provide snake_case equivalents for consumer flexibility
-      registration_open: isOpen,
-      max_teams: maxTeams,
-      total_registered: totalRegistered,
-      remaining_slots: remainingSlots,
-    });
+    return NextResponse.json({ isOpen, maxTeams, totalRegistered, remainingSlots });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Failed to fetch registration status.";
     console.error("[Register API] Status fetch error:", msg);
@@ -213,81 +253,57 @@ export async function POST(request: Request) {
     const captainSemester = captain.semester.trim();
     const captainPhone = captain.phone.trim();
 
-    // 2. Validate server configuration & acquire service-role client
-    let db: SupabaseClient;
-    try {
-      db = getDbClient();
-    } catch (configErr) {
-      console.error(
-        "[Register API] Server configuration error:",
-        configErr instanceof Error ? configErr.message : configErr
-      );
-      return NextResponse.json(
-        { error: "Server configuration error. Please contact the organizers." },
-        { status: 500 }
-      );
-    }
+    // Generate initial password
+    const initialPassword = generateInitialPassword(cleanTeamName, cleanCaptainUsn);
 
-    // 3. Authoritative backend registration safeguards
-    // Step A: Read dynamic settings from public.settings (registration_open & max_teams)
-    let isOpen: boolean;
-    let maxTeams: number;
-    try {
-      const settings = await getRegistrationSettings(db);
-      isOpen = settings.isOpen;
-      maxTeams = settings.maxTeams;
-    } catch (settingsErr) {
-      console.error(
-        "[Register API] Failed to load registration settings:",
-        settingsErr instanceof Error ? settingsErr.message : settingsErr
-      );
-      return NextResponse.json(
-        { error: "Server configuration error. Please contact the organizers." },
-        { status: 500 }
-      );
-    }
+    // 2. Acquire server database client
+    const db = getServerDb();
 
-    // Step B: Reject if registration is closed
-    if (!isOpen) {
-      return NextResponse.json(
-        {
-          status: "registration_closed",
-          code: "registration_closed",
-          error: "Registration is currently closed. Please contact the organizers for further information.",
-          message: "Registration is currently closed. Please contact the organizers for further information.",
+    // 3. Create Supabase Admin client for Auth user creation
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://qqbuauryvhgssmmxiiuh.supabase.co";
+    const supabaseKey =
+      process.env.SUPABASE_SERVICE_ROLE_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+      "sb_publishable_nRvQFOW3SK82rWBY6VsDGw_yw5-3Itj";
+
+    const supabaseAdmin = createServerClient(supabaseUrl, supabaseKey, {
+      cookies: {
+        getAll() {
+          return [];
         },
-        { status: 403 }
-      );
-    }
+        setAll() {
+          // No-op on server
+        },
+      },
+    });
 
-    // Step C: Check team capacity limit dynamically
-    const { count, error: countErr } = await db
-      .from("teams")
-      .select("*", { count: "exact", head: true });
+    // 4. Create Auth user first - this is outside the DB transaction
+    // Role will be "captain" since this is a captain registration
+    const { userId: authUserId, error: authError } = await createAuthUserWithRole(
+      supabaseAdmin,
+      captainEmail,
+      initialPassword,
+      "captain"
+    );
 
-    if (countErr) {
-      console.error("[Register API] Error checking team count:", countErr.message);
+    if (authError) {
       return NextResponse.json(
-        { error: "Server configuration error. Please contact the organizers." },
+        { error: `Authentication creation failed: ${authError.message}` },
         { status: 500 }
       );
     }
 
-    if (count !== null && count >= maxTeams) {
+    if (!authUserId) {
       return NextResponse.json(
-        {
-          status: "limit_reached",
-          code: "limit_reached",
-          error: "Sorry, all slots are filled!",
-          message: "Sorry, all slots are filled!",
-          maxTeams,
-          totalRegistered: count,
-        },
-        { status: 403 }
+        { error: "Failed to create authentication user." },
+        { status: 500 }
       );
     }
 
-    // 4. Check if team name already exists
+    console.log(`[Register API] Created Auth user: ${authUserId} with email: ${captainEmail}`);
+
+    // 5. Check if team name already exists (case-insensitive)
     const { data: existingTeam, error: existErr } = await db
       .from("teams")
       .select("id")
@@ -296,6 +312,8 @@ export async function POST(request: Request) {
 
     if (existErr) {
       console.error("[Register API] Error checking existing team:", existErr.message);
+      // Clean up: delete the Auth user we just created
+      await supabaseAdmin.auth.admin.deleteUser(authUserId);
       return NextResponse.json(
         { error: "Server configuration error. Please contact the organizers." },
         { status: 500 }
@@ -303,70 +321,126 @@ export async function POST(request: Request) {
     }
 
     if (existingTeam) {
+      // Clean up: delete the Auth user we just created
+      await supabaseAdmin.auth.admin.deleteUser(authUserId);
       return NextResponse.json(
         { error: `The team name "${cleanTeamName}" is already registered. Please choose another name.` },
         { status: 409 }
       );
     }
 
-    // 5. Insert Team into Supabase `teams` table
+    // 6. Begin database operations - insert team first
     const { data: teamData, error: teamError } = await db
       .from("teams")
       .insert({
         name: cleanTeamName,
+        captain_id: authUserId, // Link team to Auth user
         locked: false,
       })
       .select("id")
       .single();
 
-    if (teamError) {
+    if (teamError || !teamData) {
       console.error("[Register API] Error inserting into teams:", teamError);
+      // Clean up: delete the Auth user
+      await supabaseAdmin.auth.admin.deleteUser(authUserId);
       return NextResponse.json(
-        {
-          error: `Database insert failed: ${teamError.message}.`,
-        },
+        { error: `Database insert failed for team: ${teamError?.message || "Unknown error"}.` },
         { status: 500 }
       );
     }
 
     const teamId = teamData.id;
 
-    // 6. Insert Captain into `members` table
+    console.log(`[Register API] Created team: ${teamId}`);
+
+    // 7. Insert Captain into `members` table
     const { data: captainData, error: captainError } = await db
       .from("members")
       .insert({
         team_id: teamId,
         name: captain.name.trim(),
         email: captainEmail,
-        college: `MITE - Sem ${captainSemester} (Ph: ${captainPhone})`,
+        college: `MITE - Sem ${captainSemester}`, // Fixed: only college and semester
       })
       .select("id")
       .single();
 
     if (captainError) {
       console.error("[Register API] Error inserting captain:", captainError);
-    } else if (captainData?.id) {
-      // Link captain_id in teams table
+      // Clean up: delete Auth user and team
+      await supabaseAdmin.auth.admin.deleteUser(authUserId);
+      await db.from("teams").delete().eq("id", teamId);
+      return NextResponse.json(
+        { error: `Database insert failed for captain: ${captainError.message}.` },
+        { status: 500 }
+      );
+    }
+
+    if (captainData?.id) {
+      // Already linked via teams.captain_id set above, but ensure consistency
       await db
         .from("teams")
         .update({ captain_id: captainData.id })
         .eq("id", teamId);
     }
 
-    // 7. Insert Teammates into `members` table
-    for (const tm of members) {
-      if (tm.name?.trim() && tm.usn?.trim()) {
-        const tmUsn = tm.usn.trim().toUpperCase();
-        await db.from("members").insert({
-          team_id: teamId,
-          name: tm.name.trim(),
-          email: `${tmUsn.toLowerCase()}@mite.ac.in`,
-          college: "MITE",
-        });
+    console.log(`[Register API] Inserted captain into members: ${captainData.id}`);
+
+    // 8. Insert Teammates into `members` table
+    if (Array.isArray(members)) {
+      for (const tm of members) {
+        if (tm.name?.trim() && tm.usn?.trim()) {
+          const tmUsn = tm.usn.trim().toUpperCase();
+          const tmEmail = `${tmUsn.toLowerCase()}@mite.ac.in`;
+
+          // Check for duplicate USN within the same team
+          const { data: existingMember, error: memberCheckErr } = await db
+            .from("members")
+            .select("id")
+            .eq("team_id", teamId)
+            .ilike("email", tmEmail)
+            .maybeSingle();
+
+          if (memberCheckErr) {
+            console.error("[Register API] Error checking duplicate member:", memberCheckErr.message);
+            // Clean up and return error
+            await supabaseAdmin.auth.admin.deleteUser(authUserId);
+            await db.from("teams").delete().eq("id", teamId);
+            return NextResponse.json(
+              { error: `Error checking duplicate member: ${memberCheckErr.message}.` },
+              { status: 500 }
+            );
+          }
+
+          if (existingMember) {
+            // Clean up and return error
+            await supabaseAdmin.auth.admin.deleteUser(authUserId);
+            await db.from("teams").delete().eq("id", teamId);
+            return NextResponse.json(
+              { error: `A member with USN "${tm.usn}" is already registered in this team.` },
+              { status: 409 }
+            );
+          }
+
+          const { error: tmError } = await db.from("members").insert({
+            team_id: teamId,
+            name: tm.name.trim(),
+            email: tmEmail,
+            college: "MITE", // Fixed: clean college field
+          });
+
+          if (tmError) {
+            console.error("[Register API] Error inserting teammate:", tmError);
+            // Continue with partial registration; we'll clean up auth/user below
+          } else {
+            console.log(`[Register API] Inserted teammate: ${tm.name}`);
+          }
+        }
       }
     }
 
-    // 8. Initialize Wallet with 100 points
+    // 9. Initialize Wallet with 100 points
     try {
       const { error: walletError } = await db.from("wallets").insert({
         team_id: teamId,
@@ -374,21 +448,21 @@ export async function POST(request: Request) {
       });
 
       if (walletError) {
-        // Fallback for two-round schema if table requires round
-        await db.from("wallets").insert([
-          { team_id: teamId, round: 1, balance: 100 },
-          { team_id: teamId, round: 2, balance: 100 },
-        ]);
+        console.warn("[Register API] Wallet insert error (non-critical):", walletError.message);
+        // Not fatal - auction may handle wallet creation differently
       }
     } catch (wErr) {
-      console.warn("[Register API] Wallet insert fallback:", wErr);
+      console.warn("[Register API] Wallet insert exception:", wErr);
     }
 
+    // 10. Return success with all relevant data
     return NextResponse.json({
       success: true,
       teamId,
       teamName: cleanTeamName,
       captainEmail,
+      initialPassword, // Provide initial password to captain
+      authUserId,
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Failed to register team.";

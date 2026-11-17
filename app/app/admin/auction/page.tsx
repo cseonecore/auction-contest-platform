@@ -2,7 +2,7 @@
 
 /**
  * Admin Auction Management Page
- * Bid2Build (Auction Contest Platform) — Complete Phase 4B
+ * Bid2Build (Auction Contest Platform) — Complete Phase 4B & Visual Live Arena
  *
  * Full-featured administrative control and monitoring center for the auction:
  *  - Phase 4B.1: Auction Overview Dashboard & Live KPIs
@@ -10,14 +10,17 @@
  *  - Phase 4B.3: Active Slot Bidding Controller & Pending Slot Launcher
  *  - Phase 4B.4A: Live Bid Feed Stream
  *  - Phase 4B.4B: Team Allocation & Economy Table (Rule Book §5.3 & §9.8)
+ *  - Visual Live Arena: AdminAuctionRoom (Figma Design)
  *
  * Synchronized with database authoritative state via useAdminAuction hook.
  */
 
 import React, { Suspense, useState, useMemo, useCallback } from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AdminHeader } from '@/features/admin/components/AdminHeader';
 import { AdminAuthGuard } from '@/features/admin/components/AdminAuthGuard';
+import { AdminAuctionRoom } from '@/features/auction/components/AdminAuctionRoom';
 import { useAdminAuth } from '@/features/admin/hooks/useAdminAuth';
 import { useAdminAuction } from '@/features/admin/hooks/useAdminAuction';
 import { AdminSubnav } from '@/features/admin/components/AdminSubnav';
@@ -32,9 +35,12 @@ import {
   type AuctionActionModalState,
   type AuctionActionType,
 } from '@/features/admin/components/auction/AuctionActionModal';
+import { AuctionResetModal } from '@/features/admin/components/auction/AuctionResetModal';
+import { AddTopicModal } from '@/features/admin/components/auction/AddTopicModal';
 import type {
   AdminSlotWithDetails,
   AuctionTabKey,
+  CreateTopicFormValues,
 } from '@/features/admin/types/auctionAdmin';
 
 function AdminAuctionInner() {
@@ -75,6 +81,8 @@ function AdminAuctionInner() {
     handleOpenSlot,
     handleCloseSlot,
     handleSkipSlot,
+    handleResetAuction,
+    handleCreateTopic,
     clearFeedback,
     refreshAll,
   } = useAdminAuction({
@@ -85,6 +93,8 @@ function AdminAuctionInner() {
   // Modal States
   const [inspectModalSlot, setInspectModalSlot] = useState<AdminSlotWithDetails | null>(null);
   const [actionModalState, setActionModalState] = useState<AuctionActionModalState | null>(null);
+  const [isResetModalOpen, setIsResetModalOpen] = useState<boolean>(false);
+  const [isAddTopicModalOpen, setIsAddTopicModalOpen] = useState<boolean>(false);
   const [isExecutingAction, setIsExecutingAction] = useState<boolean>(false);
 
   // Pending slots for active controller launcher
@@ -104,14 +114,14 @@ function AdminAuctionInner() {
     []
   );
 
-  // Execute confirmed action
+  // Execute confirmed slot action (open with startingBid, close, skip)
   const handleConfirmAction = useCallback(
-    async (slotId: string, action: AuctionActionType) => {
+    async (slotId: string, action: AuctionActionType, startingBid?: number) => {
       setIsExecutingAction(true);
       try {
         let success = false;
         if (action === 'open') {
-          success = await handleOpenSlot(slotId);
+          success = await handleOpenSlot(slotId, startingBid);
         } else if (action === 'close') {
           success = await handleCloseSlot(slotId);
         } else if (action === 'skip') {
@@ -128,6 +138,39 @@ function AdminAuctionInner() {
       }
     },
     [handleOpenSlot, handleCloseSlot, handleSkipSlot]
+  );
+
+  // Execute full auction reset (Feature 2)
+  const handleConfirmReset = useCallback(async () => {
+    setIsExecutingAction(true);
+    try {
+      const success = await handleResetAuction();
+      if (success) {
+        setIsResetModalOpen(false);
+        setActionModalState(null);
+        setInspectModalSlot(null);
+      }
+    } finally {
+      setIsExecutingAction(false);
+    }
+  }, [handleResetAuction]);
+
+  // Execute add topic creation (Feature 3)
+  const handleConfirmCreateTopic = useCallback(
+    async (values: CreateTopicFormValues): Promise<boolean> => {
+      setIsExecutingAction(true);
+      try {
+        const success = await handleCreateTopic(values);
+        if (success) {
+          setIsAddTopicModalOpen(false);
+          return true;
+        }
+        return false;
+      } finally {
+        setIsExecutingAction(false);
+      }
+    },
+    [handleCreateTopic]
   );
 
   return (
@@ -424,6 +467,8 @@ function AdminAuctionInner() {
               onSelectSlot={(slot) => setInspectModalSlot(slot)}
               onRequestAction={handleRequestAction}
               isActionInProgress={isExecutingAction}
+              onRequestReset={() => setIsResetModalOpen(true)}
+              onRequestAddTopic={() => setIsAddTopicModalOpen(true)}
             />
           </div>
         </div>
@@ -436,6 +481,8 @@ function AdminAuctionInner() {
           onSelectSlot={(slot) => setInspectModalSlot(slot)}
           onRequestAction={handleRequestAction}
           isActionInProgress={isExecutingAction}
+          onRequestReset={() => setIsResetModalOpen(true)}
+          onRequestAddTopic={() => setIsAddTopicModalOpen(true)}
         />
       )}
 
@@ -446,6 +493,7 @@ function AdminAuctionInner() {
           recentBids={recentBids}
           onRequestAction={handleRequestAction}
           isActionInProgress={isExecutingAction}
+          onRequestReset={() => setIsResetModalOpen(true)}
         />
       )}
 
@@ -487,36 +535,82 @@ function AdminAuctionInner() {
         onRequestAction={handleRequestAction}
         isActionInProgress={isExecutingAction}
       />
+
+      {/* ─────────────────────────────────────────────────────────────
+          7. Auction Reset Confirmation Modal (Feature 2)
+      ────────────────────────────────────────────────────────────── */}
+      <AuctionResetModal
+        isOpen={isResetModalOpen}
+        onClose={() => {
+          if (!isExecutingAction) setIsResetModalOpen(false);
+        }}
+        onConfirm={handleConfirmReset}
+        isExecuting={isExecutingAction}
+      />
+
+      {/* ─────────────────────────────────────────────────────────────
+          8. Add Topic Form Modal (Feature 3)
+      ────────────────────────────────────────────────────────────── */}
+      <AddTopicModal
+        isOpen={isAddTopicModalOpen}
+        onClose={() => {
+          if (!isExecutingAction) setIsAddTopicModalOpen(false);
+        }}
+        onConfirm={handleConfirmCreateTopic}
+        existingSlots={slots}
+        isExecuting={isExecutingAction}
+      />
     </div>
   );
 }
 
-export default function AdminAuctionPage() {
+function AdminAuctionContent() {
+  const searchParams = useSearchParams();
+  const view = searchParams.get('view');
   const { user, role, signOut } = useAdminAuth();
 
-  return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex flex-col font-sans">
-      <AdminHeader
-        userEmail={user?.email}
-        role={role}
-        onSignOut={user ? signOut : undefined}
-        currentPage="Auction"
-      />
+  if (view === 'console') {
+    return (
+      <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex flex-col font-sans">
+        <AdminHeader
+          userEmail={user?.email}
+          role={role}
+          onSignOut={user ? signOut : undefined}
+          currentPage="Auction"
+        />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8">
-        <AdminAuthGuard>
-          <Suspense
-            fallback={
-              <div className="p-12 text-center text-xs text-zinc-400">
-                <span className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin inline-block mr-2" />
-                Loading Admin Auction Console...
-              </div>
-            }
-          >
-            <AdminAuctionInner />
-          </Suspense>
-        </AdminAuthGuard>
-      </main>
-    </div>
+        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8">
+          <div className="mb-4 flex items-center justify-between">
+            <span className="text-xs text-zinc-500 font-medium">Full Operations Console &amp; Slot Queues</span>
+            <Link
+              href="/admin/auction"
+              className="px-3 py-1.5 rounded-lg bg-[#fe5102] hover:bg-[#e64d00] text-white font-medium text-xs flex items-center gap-1.5 shadow-sm transition-all"
+            >
+              ← Back to Live Arena UI
+            </Link>
+          </div>
+          <AdminAuctionInner />
+        </main>
+      </div>
+    );
+  }
+
+  return <AdminAuctionRoom />;
+}
+
+export default function AdminAuctionPage() {
+  return (
+    <AdminAuthGuard>
+      <Suspense
+        fallback={
+          <div className="min-h-screen bg-[#111215] flex items-center justify-center text-xs text-zinc-400">
+            <span className="w-5 h-5 border-2 border-[#fe5102] border-t-transparent rounded-full animate-spin inline-block mr-2" />
+            Loading Auction Console...
+          </div>
+        }
+      >
+        <AdminAuctionContent />
+      </Suspense>
+    </AdminAuthGuard>
   );
 }

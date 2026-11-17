@@ -14,3 +14,5 @@ const supabaseKey =
   "placeholder-key";
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
+export type SupabaseClient = typeof supabase;
+

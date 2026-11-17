@@ -30,6 +30,8 @@ interface SlotQueueTableProps {
   onSelectSlot: (slot: AdminSlotWithDetails) => void;
   onRequestAction: (slot: AdminSlotWithDetails, action: AuctionActionType) => void;
   isActionInProgress: boolean;
+  onRequestReset?: () => void;
+  onRequestAddTopic?: () => void;
 }
 
 export function SlotQueueTable({
@@ -38,6 +40,8 @@ export function SlotQueueTable({
   onSelectSlot,
   onRequestAction,
   isActionInProgress,
+  onRequestReset,
+  onRequestAddTopic,
 }: SlotQueueTableProps) {
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState('');
@@ -153,9 +157,53 @@ export function SlotQueueTable({
   return (
     <div className="space-y-4">
       {/* ─────────────────────────────────────────────────────────────
-          1. Filter & Search Controls Bar
+          1. Filter & Search Controls Bar with Admin Action Buttons
       ────────────────────────────────────────────────────────────── */}
       <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs space-y-3">
+        {/* Top Action Bar: Count + Add Topic & Reset All Topics */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-zinc-100 dark:border-zinc-800">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+              Contest Queue Controls
+            </span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 font-mono font-semibold">
+              {filteredSlots.length} of {slots.length} slots
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2.5">
+            {onRequestAddTopic && (
+              <button
+                type="button"
+                onClick={onRequestAddTopic}
+                disabled={isActionInProgress || isLoading}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-2xs transition-colors disabled:opacity-50"
+                title="Add a new topic to the auction contest"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                <span>Add Topic</span>
+              </button>
+            )}
+
+            {onRequestReset && (
+              <button
+                type="button"
+                onClick={onRequestReset}
+                disabled={isActionInProgress || isLoading}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 bg-rose-50/60 dark:bg-rose-950/20 hover:bg-rose-100 dark:hover:bg-rose-900/40 shadow-2xs transition-colors disabled:opacity-50"
+                title="Reset all auction slots to pending, clear bids, and restore team wallets"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                <span>Reset All Topics</span>
+              </button>
+            )}
+          </div>
+        </div>
+
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           {/* Search Input */}
           <div className="relative flex-1 max-w-md">
