@@ -24,6 +24,8 @@
 | 7 | `016_auction_events.sql` | Creates `auction_events` and the triggers that feed it. |
 | 8 | `017_read_functions.sql` | Adds the authoritative read functions. |
 | 9 | `018_rls_hardening.sql` | Realtime publication, column-level lockdown of `challenge_problems.test_cases`, explicit grants and the write lockdown. |
+| 10 | `019_session_event_stream.sql` | Adds the session lifecycle trigger so Start / Stop / Pause / Resume / Reset publish `session_started`, `session_ended`, `auction_paused`, `auction_resumed` and `auction_reset` to the realtime event stream. |
+| 11 | `020_session_active_slot_sync.sql` | Replaces `open_slot`, `open_bidding`, `pause_auction` and `resume_auction` so the session records its live item (`active_slot_id`); pause/resume can then freeze and restore that item's authoritative clock. |
 
 **Migration 008 is intentionally excluded.** It seeds two auction items per topic
 (40 items). The contest now has **one** item per topic (20 items) and

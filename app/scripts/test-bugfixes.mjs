@@ -111,6 +111,10 @@ const TEAM_A = 'b0000000-0000-4000-8000-000000000001'
 const CAPTAIN_A = 'b0000000-0000-4000-8000-000000000011'
 const TEAM_B = 'b0000000-0000-4000-8000-000000000002'
 const CAPTAIN_B = 'b0000000-0000-4000-8000-000000000021'
+const TEAM_C = 'b0000000-0000-4000-8000-000000000003'
+const CAPTAIN_C = 'b0000000-0000-4000-8000-000000000031'
+const TEAM_D = 'b0000000-0000-4000-8000-000000000004'
+const CAPTAIN_D = 'b0000000-0000-4000-8000-000000000041'
 const ADMIN = 'b0000000-0000-4000-8000-000000000099'
 
 async function asUser(db, sub, role) {
@@ -158,18 +162,24 @@ async function main() {
   await db.exec(`
     insert into public.teams (id, name, captain_id) values
       ('${TEAM_A}', 'Team Alpha', '${CAPTAIN_A}'),
-      ('${TEAM_B}', 'Team Beta',  '${CAPTAIN_B}');
+      ('${TEAM_B}', 'Team Beta',  '${CAPTAIN_B}'),
+      ('${TEAM_C}', 'Team Gamma', '${CAPTAIN_C}'),
+      ('${TEAM_D}', 'Team Delta', '${CAPTAIN_D}');
 
     insert into public.members (id, team_id, name, email) values
       ('${CAPTAIN_A}', '${TEAM_A}', 'Alpha Captain', '4mt24cs001@mite.ac.in'),
-      ('${CAPTAIN_B}', '${TEAM_B}', 'Beta Captain',  '4mt24cs002@mite.ac.in');
+      ('${CAPTAIN_B}', '${TEAM_B}', 'Beta Captain',  '4mt24cs002@mite.ac.in'),
+      ('${CAPTAIN_C}', '${TEAM_C}', 'Gamma Captain', '4mt24cs003@mite.ac.in'),
+      ('${CAPTAIN_D}', '${TEAM_D}', 'Delta Captain', '4mt24cs004@mite.ac.in');
 
     insert into auth.users (id, email) values
       ('${CAPTAIN_A}', '4mt24cs001@mite.ac.in'),
-      ('${CAPTAIN_B}', '4mt24cs002@mite.ac.in');
+      ('${CAPTAIN_B}', '4mt24cs002@mite.ac.in'),
+      ('${CAPTAIN_C}', '4mt24cs003@mite.ac.in'),
+      ('${CAPTAIN_D}', '4mt24cs004@mite.ac.in');
 
     insert into public.wallets (team_id, balance) values
-      ('${TEAM_A}', 100), ('${TEAM_B}', 100);
+      ('${TEAM_A}', 100), ('${TEAM_B}', 100), ('${TEAM_C}', 100), ('${TEAM_D}', 100);
   `)
 
   const slotFor = async (topicTitle) => {
@@ -454,6 +464,265 @@ async function main() {
     )
     assert(rows.rows[0].n === 0, 'the session record survived logout')
     return 'logged out cleanly'
+  })
+
+  // ───────────────────────────────────────────────────────────────────────
+  group('5. Bug 2 — opening a slot activates bidding for all four teams')
+  // ───────────────────────────────────────────────────────────────────────
+  let slot3 = ''
+  let eventsBaseline = { placed: 0, changed: 0 }
+
+  await check('reset clears every winner so all four teams are eligible again', async () => {
+    await asUser(db, ADMIN, 'admin')
+    const res = await db.query(`select public.reset_auction() as r`)
+    assert(res.rows[0].r.success === true, 'reset failed')
+    const sold = await db.query(
+      `select count(*)::int as n from public.slots where status = 'sold'`
+    )
+    assert(sold.rows[0].n === 0, 'sold slots survived the reset')
+    return 'no team carries a win into the new session'
+  })
+
+  await check('start → open bidding publishes the item and its 10s window', async () => {
+    await asUser(db, ADMIN, 'admin')
+    const start = await db.query(`select public.start_auction(1) as r`)
+    assert(start.rows[0].r.success === true, 'start_auction failed')
+    slot3 = await slotFor('Campus Life Tech')
+    const open = await db.query(`select public.open_bidding($1) as r`, [slot3])
+    assert(open.rows[0].r.success === true, 'open_bidding failed')
+
+    const state = (await db.query(`select public.get_live_auction_state() as s`)).rows[0].s
+    assert(state.active_slot?.id === slot3, 'live state has no active slot')
+    assert(state.active_slot.status === 'open', 'the live item is not open')
+    assert(state.active_slot.current_bid === 0, 'the opening current bid is not 0')
+    assert(
+      state.active_slot.min_next_bid === 10,
+      `opening bid is ${state.active_slot.min_next_bid}, expected 10`
+    )
+    assert(state.active_slot.timer_status === 'running', 'the item clock did not start')
+    assert(state.active_slot.end_time, 'the item has no deadline')
+    assert(state.session?.id === start.rows[0].r.session_id, 'live state lost the session')
+
+    const linked = await db.query(
+      `select active_slot_id from public.auction_sessions where id = $1`,
+      [start.rows[0].r.session_id]
+    )
+    assert(
+      linked.rows[0].active_slot_id === slot3,
+      'the session was not linked to the live item'
+    )
+
+    // auction_events is append-only and the slot id survives a reset, so
+    // measure the bids this group adds rather than the lifetime total.
+    eventsBaseline = {
+      placed: (
+        await db.query(
+          `select count(*)::int as n from public.auction_events where event_type = 'bid_placed' and slot_id = $1`,
+          [slot3]
+        )
+      ).rows[0].n,
+      changed: (
+        await db.query(
+          `select count(*)::int as n from public.auction_events where event_type = 'highest_bid_changed' and slot_id = $1`,
+          [slot3]
+        )
+      ).rows[0].n,
+    }
+    return 'four captains can act on a 10-point opening bid'
+  })
+
+  await check('four captains trade bids 10 → 20 → 30 → 40', async () => {
+    const ladder = [
+      [CAPTAIN_A, 10],
+      [CAPTAIN_B, 20],
+      [CAPTAIN_C, 30],
+      [CAPTAIN_D, 40],
+    ]
+    for (const [captain, amount] of ladder) {
+      await asUser(db, captain, 'captain')
+      const res = await db.query(`select public.place_bid($1, $2) as r`, [slot3, amount])
+      assert(res.rows[0].r.success === true, `${captain.slice(-4)} could not bid ${amount}`)
+    }
+    const slot = await db.query(
+      `select current_bid, leader_team_id from public.slots where id = $1`,
+      [slot3]
+    )
+    assert(slot.rows[0].current_bid === 40, 'the current bid is not 40')
+    assert(slot.rows[0].leader_team_id === TEAM_D, 'Team Delta is not leading')
+    return 'A 10 → B 20 → C 30 → D 40'
+  })
+
+  await check('teams that were overtaken can bid again', async () => {
+    await asUser(db, CAPTAIN_A, 'captain')
+    const a = await db.query(`select public.place_bid($1, 50) as r`, [slot3])
+    assert(a.rows[0].r.success === true, 'the first leader could not bid after being overtaken')
+    await asUser(db, CAPTAIN_B, 'captain')
+    const b = await db.query(`select public.place_bid($1, 60) as r`, [slot3])
+    assert(b.rows[0].r.success === true, 'the previous leader could not bid after being overtaken')
+    const leader = await db.query(`select leader_team_id from public.slots where id = $1`, [slot3])
+    assert(leader.rows[0].leader_team_id === TEAM_B, 'leadership did not rotate to Team Beta')
+    return 'A 50 → B 60, both had been overtaken'
+  })
+
+  await check('the current leader is the only team blocked from bidding', async () => {
+    await asUser(db, CAPTAIN_B, 'captain')
+    await expectError(
+      db,
+      'bid',
+      () => db.query(`select public.place_bid($1, 70)`, [slot3]),
+      /already the highest bidder/
+    )
+    return 'self-outbid rejected'
+  })
+
+  await check('a valid raise restarts the clock with +5s', async () => {
+    const before = (
+      await db.query(`select end_time from public.slots where id = $1`, [slot3])
+    ).rows[0].end_time
+    await asUser(db, CAPTAIN_C, 'captain')
+    const res = await db.query(`select public.place_bid($1, 70) as r`, [slot3])
+    assert(res.rows[0].r.success === true, 'Team Gamma could not raise to 70')
+    const after = (
+      await db.query(`select end_time from public.slots where id = $1`, [slot3])
+    ).rows[0].end_time
+    const delta = (new Date(after) - new Date(before)) / 1000
+    assert(delta === 5, `the clock moved ${delta}s instead of 5s`)
+    return `C 70, clock +${delta}s`
+  })
+
+  await check('pausing freezes the live item and blocks bids', async () => {
+    await asUser(db, ADMIN, 'admin')
+    const paused = await db.query(`select public.pause_auction() as r`)
+    assert(paused.rows[0].r.success === true, 'pause failed')
+    const slot = (
+      await db.query(
+        `select timer_status, paused_remaining_seconds from public.slots where id = $1`,
+        [slot3]
+      )
+    ).rows[0]
+    assert(
+      slot.timer_status === 'paused',
+      `the item timer is ${slot.timer_status}, expected paused`
+    )
+    assert(slot.paused_remaining_seconds > 0, 'the remaining time was not frozen')
+    await asUser(db, CAPTAIN_D, 'captain')
+    await expectError(
+      db,
+      'bid',
+      () => db.query(`select public.place_bid($1, 80)`, [slot3]),
+      /paused/
+    )
+    return `frozen with ${slot.paused_remaining_seconds}s left`
+  })
+
+  await check('resuming restores the clock and re-enables bidding', async () => {
+    await asUser(db, ADMIN, 'admin')
+    const before = (
+      await db.query(`select end_time from public.slots where id = $1`, [slot3])
+    ).rows[0].end_time
+    const resumed = await db.query(`select public.resume_auction() as r`)
+    assert(resumed.rows[0].r.success === true, 'resume failed')
+    const after = (
+      await db.query(`select end_time, timer_status from public.slots where id = $1`, [slot3])
+    ).rows[0]
+    assert(after.timer_status === 'running', 'the item clock did not restart')
+    assert(new Date(after.end_time) >= new Date(before), 'the deadline moved backwards on resume')
+    await asUser(db, CAPTAIN_D, 'captain')
+    const bid = await db.query(`select public.place_bid($1, 80) as r`, [slot3])
+    assert(bid.rows[0].r.success === true, 'Team Delta could not bid after resume')
+    return 'D 80 accepted, clock running'
+  })
+
+  await check('pause repairs items opened before the session pointer existed', async () => {
+    await asUser(db, ADMIN, 'admin')
+    await db.query(
+      `update public.auction_sessions
+       set active_slot_id = null
+       where status not in ('completed', 'cancelled')`
+    )
+    const paused = await db.query(`select public.pause_auction() as r`)
+    assert(paused.rows[0].r.success === true, 'pause failed with a NULL pointer')
+    const frozen = (
+      await db.query(
+        `select timer_status, paused_remaining_seconds from public.slots where id = $1`,
+        [slot3]
+      )
+    ).rows[0]
+    assert(frozen.timer_status === 'paused', 'the fallback did not freeze the open item')
+    assert(frozen.paused_remaining_seconds > 0, 'the fallback froze zero seconds')
+    await asUser(db, CAPTAIN_A, 'captain')
+    await expectError(
+      db,
+      'bid',
+      () => db.query(`select public.place_bid($1, 90)`, [slot3]),
+      /paused/
+    )
+    await asUser(db, ADMIN, 'admin')
+    const resumed = await db.query(`select public.resume_auction() as r`)
+    assert(resumed.rows[0].r.success === true, 'resume failed with a NULL pointer')
+    const running = (
+      await db.query(`select timer_status from public.slots where id = $1`, [slot3])
+    ).rows[0]
+    assert(running.timer_status === 'running', 'the fallback did not restart the clock')
+    return 'a NULL active_slot_id still freezes and restores the open item'
+  })
+
+  await check('live state exposes the final leader, next bid and four bidders', async () => {
+    const state = (await db.query(`select public.get_live_auction_state() as s`)).rows[0].s
+    assert(state.active_slot.current_bid === 80, `current bid is ${state.active_slot.current_bid}`)
+    assert(state.active_slot.leader_team_id === TEAM_D, 'the live leader is not Team Delta')
+    assert(state.active_slot.min_next_bid === 90, `min_next_bid is ${state.active_slot.min_next_bid}`)
+    const bidders = state.teams.filter((t) => t.current_bid > 0)
+    assert(bidders.length === 4, `${bidders.length} teams show a bid`)
+    assert(
+      new Set(bidders.map((t) => t.current_bid)).size === 4,
+      'team best bids are not distinct'
+    )
+    return 'current 80, next 90, 4 bidders'
+  })
+
+  await check('the event stream has one bid and one leader change per bid', async () => {
+    const placed =
+      (
+        await db.query(
+          `select count(*)::int as n from public.auction_events where event_type = 'bid_placed' and slot_id = $1`,
+          [slot3]
+        )
+      ).rows[0].n - eventsBaseline.placed
+    const changed =
+      (
+        await db.query(
+          `select count(*)::int as n from public.auction_events where event_type = 'highest_bid_changed' and slot_id = $1`,
+          [slot3]
+        )
+      ).rows[0].n - eventsBaseline.changed
+    const teams = (
+      await db.query(
+        `select count(distinct team_id)::int as n from public.auction_events where event_type = 'bid_placed' and slot_id = $1`,
+        [slot3]
+      )
+    ).rows[0].n
+    assert(placed === 8, `${placed} bid_placed events, expected 8`)
+    assert(changed === 8, `${changed} highest_bid_changed events, expected 8`)
+    assert(teams === 4, `${teams} teams in the stream, expected 4`)
+    return '8 bids, 8 leader changes, 4 teams'
+  })
+
+  await check('closing the four-team item debits only the winner once', async () => {
+    await asUser(db, ADMIN, 'admin')
+    const res = await db.query(`select public.close_slot($1) as r`, [slot3])
+    assert(res.rows[0].r.status === 'sold', 'the item was not sold')
+    assert(res.rows[0].r.winning_bid === 80, `winning bid was ${res.rows[0].r.winning_bid}`)
+    assert((await walletOf(db, TEAM_D)) === 20, 'the winner balance is not 20')
+    assert((await walletOf(db, TEAM_A)) === 100, 'a losing team was charged')
+    assert((await walletOf(db, TEAM_B)) === 100, 'a losing team was charged')
+    assert((await walletOf(db, TEAM_C)) === 100, 'a losing team was charged')
+    const ledger = await db.query(
+      `select count(*)::int as n from public.wallet_transactions where slot_id = $1 and tx_type = 'win_deduction'`,
+      [slot3]
+    )
+    assert(ledger.rows[0].n === 1, `${ledger.rows[0].n} debit entries`)
+    return 'D 100 − 80 = 20, A/B/C untouched'
   })
 
   await db.close()
