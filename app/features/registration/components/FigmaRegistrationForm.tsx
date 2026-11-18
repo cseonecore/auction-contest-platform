@@ -98,6 +98,12 @@ export const FigmaRegistrationForm: React.FC = () => {
       return;
     }
 
+    const USN_PATTERN = /^4MT\d{2}[A-Z]{2}\d{3}$/i;
+    if (!USN_PATTERN.test(captainUsn.trim())) {
+      setError("Invalid Captain USN! Must follow pattern 4MT2XBBMMM (e.g., 4MT24CS001).");
+      return;
+    }
+
     if (!captainSemester) {
       setError("Please select Captain's Semester.");
       return;
@@ -115,6 +121,11 @@ export const FigmaRegistrationForm: React.FC = () => {
       return;
     }
 
+    if (!USN_PATTERN.test(m2Usn.trim())) {
+      setError("Invalid Member 2 USN! Must follow pattern 4MT2XBBMMM (e.g., 4MT24CS002).");
+      return;
+    }
+
     const cleanM2Phone = m2Phone.replace(/[\s-]/g, "");
     if (!cleanM2Phone || cleanM2Phone.length < 10) {
       setError("Please enter a valid 10-digit Phone Number for Member 2.");
@@ -126,6 +137,10 @@ export const FigmaRegistrationForm: React.FC = () => {
     if (teamSize >= 3) {
       if (!m3Name.trim() || !m3Usn.trim()) {
         setError("Please fill in Member 3 Name and USN.");
+        return;
+      }
+      if (!USN_PATTERN.test(m3Usn.trim())) {
+        setError("Invalid Member 3 USN! Must follow pattern 4MT2XBBMMM (e.g., 4MT24CS003).");
         return;
       }
       cleanM3Phone = m3Phone.replace(/[\s-]/g, "");
@@ -140,6 +155,10 @@ export const FigmaRegistrationForm: React.FC = () => {
     if (teamSize >= 4) {
       if (!m4Name.trim() || !m4Usn.trim()) {
         setError("Please fill in Member 4 Name and USN.");
+        return;
+      }
+      if (!USN_PATTERN.test(m4Usn.trim())) {
+        setError("Invalid Member 4 USN! Must follow pattern 4MT2XBBMMM (e.g., 4MT24CS004).");
         return;
       }
       cleanM4Phone = m4Phone.replace(/[\s-]/g, "");
@@ -251,7 +270,7 @@ export const FigmaRegistrationForm: React.FC = () => {
         <div className="mt-8">
           <Link
             href="/login"
-            className="bg-[#ff5500] hover:bg-[#e64d00] text-white font-semibold text-xs sm:text-sm px-8 py-2.5 rounded-full shadow-sm transition-all inline-block"
+            className="bg-[#fe5102] hover:bg-[#e54700] text-white font-semibold text-xs sm:text-sm px-8 py-2.5 rounded-full shadow-xs transition-all inline-block"
           >
             Go to Log in
           </Link>
@@ -277,7 +296,7 @@ export const FigmaRegistrationForm: React.FC = () => {
         <div className="mt-8">
           <Link
             href="/login"
-            className="bg-[#ff5500] hover:bg-[#e64d00] text-white font-semibold text-xs sm:text-sm px-8 py-2.5 rounded-full shadow-sm transition-all inline-block"
+            className="bg-[#fe5102] hover:bg-[#e54700] text-white font-semibold text-xs sm:text-sm px-8 py-2.5 rounded-full shadow-xs transition-all inline-block"
           >
             Back to Log in
           </Link>
@@ -303,7 +322,7 @@ export const FigmaRegistrationForm: React.FC = () => {
         <div className="mt-8">
           <Link
             href="/login"
-            className="bg-[#ff5500] hover:bg-[#e64d00] text-white font-semibold text-xs sm:text-sm px-8 py-2.5 rounded-full shadow-sm transition-all inline-block"
+            className="bg-[#fe5102] hover:bg-[#e54700] text-white font-semibold text-xs sm:text-sm px-8 py-2.5 rounded-full shadow-xs transition-all inline-block"
           >
             Back to Log in
           </Link>
@@ -336,7 +355,7 @@ export const FigmaRegistrationForm: React.FC = () => {
       <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm p-4 sm:p-6 text-left">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
           {/* LEFT: Orange Enter Details Form */}
-          <div className="bg-[#ff5500] rounded-2xl p-5 sm:p-6 text-white shadow-xs space-y-3.5">
+          <div className="bg-[#fe5102] rounded-2xl p-5 sm:p-6 text-white shadow-xs space-y-3.5">
             <h2 className="text-xl font-bold tracking-tight mb-2">
               Enter Details
             </h2>
@@ -369,7 +388,7 @@ export const FigmaRegistrationForm: React.FC = () => {
                     onClick={() => setTeamSize(sz)}
                     className={`w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center transition-all cursor-pointer ${
                       teamSize === sz
-                        ? "bg-white text-[#ff5500] shadow-sm scale-105"
+                        ? "bg-white text-[#fe5102] shadow-sm scale-105"
                         : "bg-white/30 text-white hover:bg-white/40"
                     }`}
                   >
@@ -398,6 +417,7 @@ export const FigmaRegistrationForm: React.FC = () => {
                   required
                   placeholder="USN [ 4MT2XBBMMM ]"
                   value={captainUsn}
+                  maxLength={10}
                   onChange={(e) => setCaptainUsn(e.target.value.toUpperCase())}
                   className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
                 />
@@ -454,6 +474,7 @@ export const FigmaRegistrationForm: React.FC = () => {
                   required
                   placeholder="USN [ 4MT2XBBMMM ]"
                   value={m2Usn}
+                  maxLength={10}
                   onChange={(e) => setM2Usn(e.target.value.toUpperCase())}
                   className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
                 />
@@ -488,6 +509,7 @@ export const FigmaRegistrationForm: React.FC = () => {
                     required
                     placeholder="USN [ 4MT2XBBMMM ]"
                     value={m3Usn}
+                    maxLength={10}
                     onChange={(e) => setM3Usn(e.target.value.toUpperCase())}
                     className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
                   />
@@ -523,6 +545,7 @@ export const FigmaRegistrationForm: React.FC = () => {
                     required
                     placeholder="USN [ 4MT2XBBMMM ]"
                     value={m4Usn}
+                    maxLength={10}
                     onChange={(e) => setM4Usn(e.target.value.toUpperCase())}
                     className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
                   />
@@ -601,7 +624,7 @@ export const FigmaRegistrationForm: React.FC = () => {
           type="button"
           onClick={handleSubmit}
           disabled={loading}
-          className="bg-[#ff5500] hover:bg-[#e64d00] active:scale-95 text-white font-semibold text-sm px-10 py-3 rounded-full shadow-md shadow-orange-500/25 transition-all inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
+          className="bg-[#fe5102] hover:bg-[#e54700] active:scale-95 text-white font-semibold text-sm px-10 py-3 rounded-full shadow-xs transition-all inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
         >
           {loading ? (
             <>
