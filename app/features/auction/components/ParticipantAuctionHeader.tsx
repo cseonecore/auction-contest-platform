@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ContestRulesModal } from "./ContestRulesModal";
 import { B2BLogo } from "@/components/shared/B2BLogo";
+import { supabase } from "@/lib/supabase";
 
 interface ParticipantAuctionHeaderProps {
   connectionStatus?: "connected" | "reconnecting" | "offline";
@@ -17,6 +18,21 @@ export function ParticipantAuctionHeader({
   const [isRulesOpen, setIsRulesOpen] = useState(false);
 
   const handleLogout = () => {
+    // Best-effort server sign-out: invalidates the single-device
+    // session and clears the httpOnly team cookie.
+    void (async () => {
+      try {
+        await fetch("/api/logout", { method: "POST" });
+      } catch {
+        /* best effort */
+      }
+      try {
+        await supabase.auth.signOut();
+      } catch {
+        /* best effort */
+      }
+    })();
+
     if (typeof window !== "undefined") {
       localStorage.removeItem("b2b_logged_in_team");
     }

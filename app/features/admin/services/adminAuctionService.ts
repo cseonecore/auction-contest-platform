@@ -1,5 +1,7 @@
 "use client";
 
+import type { AuctionTimerStatus } from "@/types/auction";
+
 /**
  * Admin auction service.
  *
@@ -11,6 +13,12 @@
  */
 
 import { supabase } from "@/lib/supabase";
+import type {
+  ServiceResult,
+  OpenSlotResult,
+} from "@/features/admin/types/auctionAdmin";
+
+import { openSlot as adminOpenSlot } from "@/features/admin/services/auctionAdminService";
 
 export interface AdminActionResult<T = unknown> {
   success: boolean;
@@ -147,3 +155,9 @@ export const createAuctionTopic = (values: {
     p_criterion: (values.criterion ?? null) as never,
     p_slots_count: 1,
   });
+
+/** Admin open-slot wrapper calling RPC `open_slot(p_slot_id, p_starting_bid)`. */
+export const openSlot = async (
+  slotId: string,
+  startingBid: number = 10
+): Promise<ServiceResult<OpenSlotResult>> => adminOpenSlot(slotId, startingBid);

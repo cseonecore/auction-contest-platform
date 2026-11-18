@@ -5,12 +5,13 @@
  *
  * It owns exactly one source of truth — the authoritative state from
  * `get_live_auction_state()` — and reconciles it with the realtime
- * event stream. There is no second copy of the auction state and no
- * polling fallback: when the socket drops, the client reconnects and
- * re-reads the state.
+ * event stream. The realtime channel is the primary sync path, but it
+ * is never the ONLY path: a periodic re-read and a re-read on window
+ * focus heal a dropped subscription or a missed event.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { supabase } from "@/lib/supabase";
 import {
   fetchCurrentIdentity,
   fetchLiveAuctionState,
@@ -74,51 +75,86 @@ export function useAuction(options: { teamId?: string | null } = {}): UseAuction
   );
   const teamId = options.teamId ?? resolvedTeamId;
 
-  const load = useCallback(async (showSpinner = false) => {
-    if (showSpinner) setRefreshing(true);
+  // Monotonic sequence number: only the LATEST load may land. The
+  // realtime channel, the timer expiry, a window focus and the periodic
+  // re-read all fire overlapping loads — without this guard an older
+  // response could overwrite newer state (e.g. resurrect a bid that
+  // was just outbid, or rewind the countdown).
+  const loadSeqRef = useRef(0);
 
-    const result = await fetchLiveAuctionState();
+  const load = useCallback(
+    async (showSpinner = false) => {
+      const seq = ++loadSeqRef.current;
+      if (showSpinner) setRefreshing(true);
 
-    if (result.success && result.data) {
-      setState(result.data);
-      setError(null);
-    } else {
-      setError(result.error ?? "Failed to load the auction state");
-    }
+      const result = await fetchLiveAuctionState();
 
-    if (teamId) {
-      const teamResult = await fetchTeamAuctionState(teamId);
-      if (teamResult.success && teamResult.data) {
-        setTeamState(teamResult.data);
+      // A newer load superseded this one — discard it entirely.
+      if (seq !== loadSeqRef.current) {
+        if (showSpinner) setRefreshing(false);
+        return;
       }
-    }
-
-    if (showSpinner) setRefreshing(false);
-    setLoading(false);
-  }, [teamId]);
-
-  // Resolve the participant identity once.
-  useEffect(() => {
-    let cancelled = false;
-
-    void (async () => {
-      const result = await fetchCurrentIdentity();
-      if (cancelled) return;
 
       if (result.success && result.data) {
-        setIdentity(result.data);
-        if (result.data.teamId) {
-          setResolvedTeamId(result.data.teamId);
-        }
+        setState(result.data);
+        setError(null);
       } else {
-        setError(result.error ?? "You must be signed in to participate.");
+        setError(result.error ?? "Failed to load the auction state");
       }
-    })();
 
-    return () => {
-      cancelled = true;
-    };
+      if (teamId) {
+        const teamResult = await fetchTeamAuctionState(teamId);
+        if (seq !== loadSeqRef.current) {
+          if (showSpinner) setRefreshing(false);
+          return;
+        }
+        if (teamResult.success && teamResult.data) {
+          setTeamState(teamResult.data);
+        }
+      }
+
+      if (showSpinner) setRefreshing(false);
+      setLoading(false);
+    },
+    [teamId]
+  );
+
+  // Resolve the participant identity. Re-run whenever the browser's
+  // Supabase session changes (login adopted via setSession, sign-out,
+  // token re-issue) so `identity.isCaptain` can never go stale.
+  const resolveIdentity = useCallback(async () => {
+    const result = await fetchCurrentIdentity();
+
+    if (result.success && result.data) {
+      setIdentity(result.data);
+      if (result.data.teamId) {
+        setResolvedTeamId(result.data.teamId);
+      }
+    } else {
+      setError(result.error ?? "You must be signed in to participate.");
+    }
   }, []);
+
+  useEffect(() => {
+    void resolveIdentity();
+  }, [resolveIdentity]);
+
+  useEffect(() => {
+    const { data: subscription } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") {
+        setIdentity({ userId: null, teamId: null, teamName: null, isCaptain: false });
+        setResolvedTeamId(null);
+        setError("You must be signed in to participate.");
+        return;
+      }
+
+      if (event === "SIGNED_IN" || event === "USER_UPDATED") {
+        void resolveIdentity();
+      }
+    });
+
+    return () => subscription.subscription.unsubscribe();
+  }, [resolveIdentity]);
 
   // Initial authoritative load.
   useEffect(() => {
@@ -131,6 +167,29 @@ export function useAuction(options: { teamId?: string | null } = {}): UseAuction
       void load(false);
     },
   });
+
+  // Safety net for the realtime path: re-read the authoritative state
+  // periodically while the tab is visible, and immediately when the
+  // tab regains focus. Realtime stays primary; this only heals a
+  // dropped subscription or an event that never arrived.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const resync = () => {
+      if (document.visibilityState !== "visible") return;
+      void load(false);
+    };
+
+    const interval = window.setInterval(resync, 15000);
+    window.addEventListener("focus", resync);
+    document.addEventListener("visibilitychange", resync);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", resync);
+      document.removeEventListener("visibilitychange", resync);
+    };
+  }, [load]);
 
   const placeBid = useCallback(
     async (slotId: string, amount: number) => {

@@ -331,6 +331,8 @@ export function ParticipantAuctionRoom() {
                 isCaptain={identity.isCaptain}
                 eliminated={Boolean(myElimination)}
                 paused={isPaused}
+                timerExpired={Boolean(activeSlot?.end_time) && countdown.secondsLeft <= 0}
+                sessionActive={Boolean(session)}
                 onBidSubmit={handlePlaceBid}
               />
             </div>

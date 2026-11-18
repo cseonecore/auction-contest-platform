@@ -97,14 +97,24 @@ export async function GET(request: Request) {
       )
       .eq("winner_team_id", team.id);
 
-    // 5. Fetch Auction Status (check if any slot is currently 'open')
-    const { data: openSlots } = await db
-      .from("slots")
-      .select("id")
-      .eq("status", "open")
-      .limit(1);
+    // 5. Fetch Auction Status
+    // "Live" means the participant can enter the arena right now:
+    // either an auction SESSION is active (Start → Stop cycles between
+    // sessions, so a restarted session is live again) or an individual
+    // item is open for bidding (the host may open bidding without a
+    // session). Checking only "some slot is open" left participants
+    // locked out of every restarted session between Stop and Open Slot.
+    const [activeSessionRes, openSlotsRes] = await Promise.all([
+      db.rpc("get_active_session"),
+      db.from("slots").select("id").eq("status", "open").limit(1),
+    ]);
 
-    const isAuctionLive = Boolean(openSlots && openSlots.length > 0);
+    const activeSessions = activeSessionRes.data;
+    const hasActiveSession = Array.isArray(activeSessions) && activeSessions.length > 0;
+    const openSlots = openSlotsRes.data;
+    const hasOpenSlot = Boolean(openSlots && openSlots.length > 0);
+
+    const isAuctionLive = hasActiveSession || hasOpenSlot;
 
     // 6. Fetch Team's Latest Submission
     const { data: latestSubmission } = await db

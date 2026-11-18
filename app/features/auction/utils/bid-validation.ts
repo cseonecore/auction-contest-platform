@@ -28,6 +28,21 @@ export interface BidValidationInput {
   eliminated?: boolean;
   /** The auction is paused. */
   paused?: boolean;
+  /**
+   * The client-side countdown has reached zero for this item.
+   * Advisory ONLY: it never blocks an open item, because the browser
+   * clock can be a hair behind the server clock and the backend
+   * (`place_bid`) owns the decision. It only sharpens the disabled
+   * reason once the item is already not open.
+   */
+  timerExpired?: boolean;
+  /**
+   * No active auction session exists. Advisory only: an admin may
+   * open bidding without a session and `place_bid()` still accepts
+   * those bids, so the client must not block them. It only sharpens
+   * the disabled reason when the item is already not open.
+   */
+  sessionActive?: boolean;
 }
 
 export interface BidValidationResult {
@@ -50,7 +65,15 @@ export function validateBid(input: BidValidationInput): BidValidationResult {
   if (!input.isCaptain) return fail("Only the team captain can place bids.");
   if (input.eliminated) return fail("Your team has been eliminated from the auction.");
   if (input.paused) return fail("Bidding is currently paused.");
-  if (input.slotStatus !== "open") return fail("The auction item is not open for bidding.");
+  if (input.slotStatus !== "open") {
+    if (input.timerExpired) {
+      return fail("The bidding window for this item has closed.");
+    }
+    if (input.sessionActive === false) {
+      return fail("The auction is not live right now.");
+    }
+    return fail("The auction item is not open for bidding.");
+  }
   if (input.hasWonRound) return fail("Your team already won an item in this round.");
   if (input.isLeader) return fail("Your team is already the highest bidder.");
   if (input.walletBalance < minNextBid) {

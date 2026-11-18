@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { FigmaHeaderLogos } from "@/components/shared/FigmaHeaderLogos";
+import { supabase } from "@/lib/supabase";
 
 export const FigmaLoginForm: React.FC = () => {
   const router = useRouter();
@@ -52,6 +53,21 @@ export const FigmaLoginForm: React.FC = () => {
         throw new Error(
           data.error || "Invalid Team Name or Captain USN. Please check your credentials."
         );
+      }
+
+      // Adopt the Supabase session issued by the server so the
+      // browser can call RLS-protected RPCs (place_bid, realtime).
+      if (data.session?.access_token && data.session?.refresh_token) {
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token,
+        });
+        if (sessionError) {
+          console.warn(
+            "[Login] Could not adopt the auction session:",
+            sessionError.message
+          );
+        }
       }
 
       // Store current team in localStorage

@@ -69,4 +69,33 @@ describe("validateBid", () => {
     const result = validateBid({ ...base, slotStatus: "sold" });
     expect(result.canBid).toBe(false);
   });
+
+  // ── Advisory context (Bug 3): these inputs only sharpen the disabled
+  // ── reason — they must never block a bid the backend would accept.
+
+  it("reports a closed bidding window once the countdown has expired", () => {
+    const result = validateBid({ ...base, slotStatus: "sold", timerExpired: true });
+    expect(result.canBid).toBe(false);
+    expect(result.reason).toMatch(/window .*closed/i);
+  });
+
+  it("reports an inactive session while the auction is not live", () => {
+    const result = validateBid({ ...base, slotStatus: "pending", sessionActive: false });
+    expect(result.canBid).toBe(false);
+    expect(result.reason).toMatch(/not live/i);
+  });
+
+  it("never blocks an open item just because the session is inactive", () => {
+    // The admin may open bidding without a session; place_bid() still
+    // accepts those bids, so the interface must accept them too.
+    const result = validateBid({ ...base, sessionActive: false });
+    expect(result.canBid).toBe(true);
+  });
+
+  it("never blocks an open item just because the countdown has expired", () => {
+    // The server clock owns the deadline; a client that thinks the
+    // window expired must still let the backend decide.
+    const result = validateBid({ ...base, timerExpired: true });
+    expect(result.canBid).toBe(true);
+  });
 });

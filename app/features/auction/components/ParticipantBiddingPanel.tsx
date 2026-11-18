@@ -18,6 +18,10 @@ interface ParticipantBiddingPanelProps {
   isCaptain?: boolean;
   eliminated?: boolean;
   paused?: boolean;
+  /** The client countdown reached zero (advisory — never blocks an open item). */
+  timerExpired?: boolean;
+  /** No active auction session exists (advisory — never blocks an open item). */
+  sessionActive?: boolean;
   onBidSubmit: (amount: number) => Promise<{ success: boolean; error?: string }>;
 }
 
@@ -34,6 +38,8 @@ export function ParticipantBiddingPanel({
   isCaptain = true,
   eliminated = false,
   paused = false,
+  timerExpired = false,
+  sessionActive,
   onBidSubmit,
 }: ParticipantBiddingPanelProps) {
   // Base required bid according to backend rules
@@ -48,6 +54,11 @@ export function ParticipantBiddingPanel({
   // Proposed bid calculation
   const proposedBid = baseNextBid + selectedIncrement;
 
+  // place_bid() rejects any bid whose amount exceeds the team's
+  // wallet (balance checked against the authoritative balance), so a
+  // raise that would go past the wallet can never succeed.
+  const walletCapExceeded = proposedBid > walletBalance;
+
   // Validation — mirrors the rules enforced by place_bid() in PostgreSQL.
   const validation = validateBid({
     currentBid,
@@ -60,14 +71,22 @@ export function ParticipantBiddingPanel({
     slotStatus,
     eliminated,
     paused,
+    timerExpired,
+    sessionActive,
   });
 
-  const isValidBid = validation.canBid && proposedBid >= validation.minNextBid;
+  const isValidBid =
+    validation.canBid &&
+    proposedBid >= validation.minNextBid &&
+    !walletCapExceeded;
 
   const getDisabledReason = (): string | null => {
     if (!validation.canBid) return validation.reason ?? null;
     if (proposedBid < validation.minNextBid) {
       return `The minimum bid is ${validation.minNextBid} points.`;
+    }
+    if (walletCapExceeded) {
+      return `Insufficient balance — your wallet has ${walletBalance} coins.`;
     }
     return null;
   };
@@ -124,7 +143,7 @@ export function ParticipantBiddingPanel({
             <button
               key={label}
               type="button"
-              disabled={!validation.canBid}
+              disabled={!validation.canBid || baseNextBid + value > walletBalance}
               onClick={() => handleIncrementClick(value)}
               className={`h-24 sm:h-28 rounded-2xl flex items-center justify-center font-black text-3xl sm:text-4xl transition-all duration-150 cursor-pointer shadow-lg disabled:opacity-40 disabled:cursor-not-allowed ${
                 isSelected

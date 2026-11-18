@@ -10,6 +10,10 @@ export interface LeaderboardTeam {
   balance?: number;
   currentBid: number;
   characterIndex?: number;
+  /** Overrides the displayed number (e.g. questions won instead of bid). */
+  stat?: number;
+  /** Eliminated teams render in dark red regardless of rank. */
+  eliminated?: boolean;
 }
 
 interface LeaderboardCapsuleProps {
@@ -27,6 +31,10 @@ export function LeaderboardCapsule({
 }: LeaderboardCapsuleProps) {
   // Determine rank color styling strictly matching Screenshot 1 & 3
   const getRankStyle = () => {
+    // Eliminated teams: deep dark red, dimmed
+    if (team.eliminated) {
+      return "bg-[#450a0a] border-red-900/60 text-white/70";
+    }
     // 1st Place: Vibrant Green
     if (rank === 1) {
       return "bg-[#15803d] border-emerald-400/40 text-white shadow-emerald-950/40";
@@ -93,7 +101,7 @@ export function LeaderboardCapsule({
           )}
         </div>
         <div className="text-xl sm:text-2xl font-black text-white leading-tight font-sans tracking-tight">
-          {team.currentBid ?? 0}
+          {team.stat ?? team.currentBid ?? 0}
         </div>
       </div>
     </div>

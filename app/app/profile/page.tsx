@@ -74,61 +74,99 @@ export default function ProfilePage() {
   const liveInputId = useId();
 
   // Load Team Profile
-  const loadProfile = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  const loadProfile = useCallback(
+    async (silent = false) => {
+      try {
+        // A quiet background refresh must never flash the spinner or
+        // wipe an error the participant is reading.
+        if (!silent) {
+          setLoading(true);
+          setError(null);
+        }
 
-      let storedTeamName = "";
-      let storedTeamId = "";
+        let storedTeamName = "";
+        let storedTeamId = "";
 
-      if (typeof window !== "undefined") {
-        const raw = localStorage.getItem("b2b_logged_in_team");
-        if (raw) {
-          try {
-            const parsed = JSON.parse(raw);
-            storedTeamName = parsed.name || "";
-            storedTeamId = parsed.id || "";
-          } catch {
-            // ignore parse errors
+        if (typeof window !== "undefined") {
+          const raw = localStorage.getItem("b2b_logged_in_team");
+          if (raw) {
+            try {
+              const parsed = JSON.parse(raw);
+              storedTeamName = parsed.name || "";
+              storedTeamId = parsed.id || "";
+            } catch {
+              // ignore parse errors
+            }
           }
         }
-      }
 
-      // No team in localStorage — not authenticated
-      if (!storedTeamName && !storedTeamId) {
-        router.replace("/login");
-        return;
-      }
-
-      const res = await fetch(
-        `/api/team/profile?${storedTeamId ? `id=${storedTeamId}` : `name=${encodeURIComponent(storedTeamName)}`}`
-      );
-      const data = await res.json();
-
-      if (res.ok && data.team) {
-        setTeam(data.team);
-
-        // Pre-fill submit modal if previously submitted
-        if (data.team.submission) {
-          setRepoUrl(data.team.submission.repo_url || "");
-          setLiveUrl(data.team.submission.live_url || "");
+        // No team in localStorage — not authenticated
+        if (!storedTeamName && !storedTeamId) {
+          router.replace("/login");
+          return;
         }
-      } else {
-        setError(data.error || "Failed to load team profile.");
+
+        const res = await fetch(
+          `/api/team/profile?${storedTeamId ? `id=${storedTeamId}` : `name=${encodeURIComponent(storedTeamName)}`}`
+        );
+        const data = await res.json();
+
+        if (res.ok && data.team) {
+          setTeam(data.team);
+
+          // Pre-fill submit modal if previously submitted
+          if (data.team.submission) {
+            setRepoUrl(data.team.submission.repo_url || "");
+            setLiveUrl(data.team.submission.live_url || "");
+          }
+        } else if (!silent) {
+          setError(data.error || "Failed to load team profile.");
+        }
+      } catch {
+        if (!silent) {
+          setError("Network error. Please check your connection and try again.");
+        }
+      } finally {
+        if (!silent) {
+          setLoading(false);
+        }
       }
-    } catch {
-      setError("Network error. Please check your connection and try again.");
-    } finally {
-      setLoading(false);
-    }
-  }, [router]);
+    },
+    [router]
+  );
 
   useEffect(() => {
     loadProfile();
   }, [loadProfile]);
 
+  // Quiet background refresh: the Enter Auction gate must open as soon
+  // as the host starts (or restarts) the auction, without the
+  // participant having to reload the page. Realtime-style polling at a
+  // gentle 15s cadence, plus an immediate refresh when the tab regains
+  // focus or becomes visible.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const quietRefresh = () => {
+      if (document.visibilityState !== "visible") return;
+      void loadProfile(true);
+    };
+
+    const interval = window.setInterval(quietRefresh, 15000);
+    window.addEventListener("focus", quietRefresh);
+    document.addEventListener("visibilitychange", quietRefresh);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", quietRefresh);
+      document.removeEventListener("visibilitychange", quietRefresh);
+    };
+  }, [loadProfile]);
+
   const handleLogout = () => {
+    // Best-effort server sign-out (invalidates the single-device
+    // session and clears the httpOnly cookie).
+    void fetch("/api/logout", { method: "POST" }).catch(() => {});
     if (typeof window !== "undefined") {
       localStorage.removeItem("b2b_logged_in_team");
     }
@@ -214,7 +252,7 @@ export default function ProfilePage() {
           <div className="flex gap-3 justify-center">
             <button
               type="button"
-              onClick={loadProfile}
+              onClick={() => loadProfile()}
               className="bg-[#fe5102] hover:bg-[#d94502] text-white text-xs font-semibold px-5 py-2 rounded-full transition-all cursor-pointer"
             >
               Try Again
