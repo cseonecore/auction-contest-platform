@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, Suspense } from "react";
+import React, { useState, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Mail, Lock, Eye, EyeOff, Loader2, AlertCircle } from "lucide-react";
@@ -28,12 +28,14 @@ function LoginFormInternal() {
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
 
-  // Keep synced if search params change dynamically
-  useEffect(() => {
+  // Keep synced if search params change dynamically (adjusting state during render)
+  const [prevUrlError, setPrevUrlError] = useState(urlError);
+  if (urlError !== prevUrlError) {
+    setPrevUrlError(urlError);
     if (urlError) {
       setErrorMessage(decodeURIComponent(urlError));
     }
-  }, [urlError]);
+  }
 
   const validate = (): boolean => {
     let isValid = true;

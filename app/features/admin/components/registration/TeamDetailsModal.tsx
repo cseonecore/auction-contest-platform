@@ -149,7 +149,7 @@ export function TeamDetailsModal({
                   <div>
                     <span className="text-zinc-500 dark:text-zinc-400">Phone: </span>
                     <strong className="text-zinc-800 dark:text-zinc-200 font-mono">
-                      {captain.phone || 'Not Specified'}
+                      {captain.phone || 'Not Provided'}
                     </strong>
                   </div>
                   <div className="sm:col-span-2 text-zinc-500 dark:text-zinc-400 text-[11px]">
@@ -179,9 +179,11 @@ export function TeamDetailsModal({
                         <span className="text-xs text-zinc-400">#{idx + 2}</span>
                         <span>{tm.name}</span>
                       </div>
-                      <span className="text-xs text-zinc-500 dark:text-zinc-400 font-mono">
-                        {tm.email}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400 font-mono">
+                        <span>{tm.email}</span>
+                        <span>•</span>
+                        <span>Phone: <strong className="font-semibold text-zinc-700 dark:text-zinc-300">{tm.phone?.trim() || 'Not Provided'}</strong></span>
+                      </div>
                     </div>
 
                     <div className="flex items-center gap-2">

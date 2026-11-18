@@ -18,10 +18,15 @@ import {
   fetchRegistrationControlSettings,
   updateRegistrationOpenStatus,
   updateMaxTeamsCapacity,
+  fetchDeletedTeamsCount,
+  deleteTeams,
+  updateSelectedTeamsLockStatus,
 } from '@/features/admin/services/registrationService';
 import { RegistrationStats } from '@/features/admin/components/registration/RegistrationStats';
 import { TeamsTable } from '@/features/admin/components/registration/TeamsTable';
 import { TeamDetailsModal } from '@/features/admin/components/registration/TeamDetailsModal';
+import { TeamDeleteModal } from '@/features/admin/components/registration/TeamDeleteModal';
+import { exportTeamDetailsToExcel } from '@/features/admin/services/registrationExportService';
 
 interface GlobalConfirmState {
   isOpen: boolean;
@@ -68,13 +73,25 @@ function AdminRegistrationContent() {
   const [isUpdatingControl, setIsUpdatingControl] = useState(false);
   const [controlConfirmModal, setControlConfirmModal] = useState<ControlConfirmModalState | null>(null);
 
+  // Phase 5: Selection, Bulk Actions, and Safe Team Deletion States
+  const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
+  const [deletedTeamsCount, setDeletedTeamsCount] = useState<number>(0);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeletingTeams, setIsDeletingTeams] = useState(false);
+  const [deleteErrorMessage, setDeleteErrorMessage] = useState<string | null>(null);
+  const [isBulkUpdating, setIsBulkUpdating] = useState(false);
+
+  // Excel export state
+  const [isExporting, setIsExporting] = useState(false);
+
   const loadData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
-    const [teamsRes, settingsRes] = await Promise.all([
+    const [teamsRes, settingsRes, deletedCountRes] = await Promise.all([
       fetchRegisteredTeams(),
       fetchRegistrationControlSettings(),
+      fetchDeletedTeamsCount(),
     ]);
 
     if (!teamsRes.success) {
@@ -88,6 +105,10 @@ function AdminRegistrationContent() {
       setCapacityInputValue(settingsRes.data.maxTeams.toString());
     }
 
+    if (deletedCountRes.success && typeof deletedCountRes.data === 'number') {
+      setDeletedTeamsCount(deletedCountRes.data);
+    }
+
     setIsLoading(false);
   }, []);
 
@@ -96,9 +117,10 @@ function AdminRegistrationContent() {
     let isMounted = true;
 
     async function init() {
-      const [teamsRes, settingsRes] = await Promise.all([
+      const [teamsRes, settingsRes, deletedCountRes] = await Promise.all([
         fetchRegisteredTeams(),
         fetchRegistrationControlSettings(),
+        fetchDeletedTeamsCount(),
       ]);
       if (!isMounted) return;
 
@@ -113,6 +135,10 @@ function AdminRegistrationContent() {
         setCapacityInputValue(settingsRes.data.maxTeams.toString());
       }
 
+      if (deletedCountRes.success && typeof deletedCountRes.data === 'number') {
+        setDeletedTeamsCount(deletedCountRes.data);
+      }
+
       setIsLoading(false);
     }
 
@@ -123,15 +149,20 @@ function AdminRegistrationContent() {
     };
   }, []);
 
-  // Compute stats dynamically from the actual teams array and active control settings
+  // Compute stats dynamically from the actual teams array, control settings, and deleted teams count
   const stats = useMemo(
-    () => calculateRegistrationStats(teams, controlSettings),
-    [teams, controlSettings]
+    () => calculateRegistrationStats(teams, controlSettings, deletedTeamsCount),
+    [teams, controlSettings, deletedTeamsCount]
   );
 
-  // Unified concurrency flag: true when ANY lock or control operation is in flight
+  // Unified concurrency flag: true when ANY lock, control, deletion, or export operation is in flight
   const isAnyUpdating =
-    updatingLockTeamId !== null || isGlobalUpdating || isUpdatingControl;
+    updatingLockTeamId !== null ||
+    isGlobalUpdating ||
+    isUpdatingControl ||
+    isBulkUpdating ||
+    isDeletingTeams ||
+    isExporting;
 
   // Handler for individual team lock / unlock
   const handleToggleTeamLock = useCallback(
@@ -250,6 +281,153 @@ function AdminRegistrationContent() {
     setIsGlobalUpdating(false);
     setGlobalConfirmModal(null);
   }, [globalConfirmModal, isGlobalUpdating, updatingLockTeamId, isUpdatingControl]);
+
+  // Phase 5: Selection Handlers
+  const handleToggleSelectTeam = useCallback((teamId: string) => {
+    setSelectedTeamIds((prev) =>
+      prev.includes(teamId) ? prev.filter((id) => id !== teamId) : [...prev, teamId]
+    );
+  }, []);
+
+  const handleSelectAll = useCallback((teamIds: string[]) => {
+    setSelectedTeamIds(teamIds);
+  }, []);
+
+  const handleClearSelection = useCallback(() => {
+    setSelectedTeamIds([]);
+  }, []);
+
+  // Phase 5: Bulk Lock / Unlock for Selected Teams
+  const handleBulkLock = useCallback(
+    async (locked: boolean) => {
+      if (selectedTeamIds.length === 0 || isAnyUpdating) return;
+      setIsBulkUpdating(true);
+      setActionFeedback(null);
+
+      const result = await updateSelectedTeamsLockStatus(selectedTeamIds, locked);
+
+      if (!result.success) {
+        setActionFeedback({
+          type: 'error',
+          message: result.error || `Failed to ${locked ? 'lock' : 'unlock'} selected teams.`,
+        });
+        setIsBulkUpdating(false);
+        return;
+      }
+
+      const count = result.data?.updatedCount ?? selectedTeamIds.length;
+      const idSet = new Set(selectedTeamIds);
+
+      // Reactively update teams state
+      setTeams((prev) =>
+        prev.map((t) => (idSet.has(t.id) ? { ...t, locked } : t))
+      );
+
+      // Keep open modal in sync
+      setSelectedTeam((prev) => (prev && idSet.has(prev.id) ? { ...prev, locked } : prev));
+
+      setActionFeedback({
+        type: 'success',
+        message: `Successfully ${locked ? 'locked' : 'unlocked'} ${count} selected team(s).`,
+      });
+
+      setIsBulkUpdating(false);
+    },
+    [selectedTeamIds, isAnyUpdating]
+  );
+
+  // Phase 5: Open Delete Confirmation Modal (validates all selected teams are locked)
+  const handleRequestOpenDeleteModal = useCallback(() => {
+    if (selectedTeamIds.length === 0 || isAnyUpdating) return;
+
+    const idSet = new Set(selectedTeamIds);
+    const targetTeams = teams.filter((t) => idSet.has(t.id));
+    const unlockedTeams = targetTeams.filter((t) => !t.locked);
+
+    if (unlockedTeams.length > 0) {
+      setActionFeedback({
+        type: 'error',
+        message: `Cannot delete unlocked teams. ${unlockedTeams.length} selected team(s) must be locked first.`,
+      });
+      return;
+    }
+
+    setDeleteErrorMessage(null);
+    setIsDeleteModalOpen(true);
+  }, [selectedTeamIds, isAnyUpdating, teams]);
+
+  // Phase 5: Execute Permanent Deletion through RPC
+  const handleConfirmDelete = useCallback(async () => {
+    if (selectedTeamIds.length === 0 || isDeletingTeams) return;
+
+    setIsDeletingTeams(true);
+    setDeleteErrorMessage(null);
+
+    const result = await deleteTeams(selectedTeamIds);
+
+    if (!result.success) {
+      setDeleteErrorMessage(result.error || 'Failed to delete selected teams.');
+      setIsDeletingTeams(false);
+      return;
+    }
+
+    const deletedCount = result.data?.deleted_count ?? selectedTeamIds.length;
+
+    // Close modal, clear selections, and reset loading state
+    setIsDeleteModalOpen(false);
+    setSelectedTeamIds([]);
+    setIsDeletingTeams(false);
+
+    // Refresh database records (teams, control settings, deleted teams count)
+    await loadData();
+
+    setActionFeedback({
+      type: 'success',
+      message: `Successfully deleted ${deletedCount} team(s). Audit records have been preserved in public.audit_log.`,
+    });
+  }, [selectedTeamIds, isDeletingTeams, loadData]);
+
+  // Excel Export Handler (Task 1)
+  const handleExportTeamDetails = useCallback(async () => {
+    if (isExporting || isLoading) return;
+
+    if (teams.length === 0) {
+      setActionFeedback({
+        type: 'error',
+        message: 'No active registered teams available for export.',
+      });
+      return;
+    }
+
+    setIsExporting(true);
+    setActionFeedback(null);
+
+    try {
+      const result = await exportTeamDetailsToExcel(teams);
+
+      if (!result.success) {
+        setActionFeedback({
+          type: 'error',
+          message: result.error || 'Failed to export team details to Excel.',
+        });
+      } else {
+        setActionFeedback({
+          type: 'success',
+          message: `Successfully generated and downloaded "${result.filename}" (${result.totalRows} team(s) with up to ${result.maxMembersInAnyTeam} members).`,
+        });
+      }
+    } catch (err: unknown) {
+      setActionFeedback({
+        type: 'error',
+        message:
+          err instanceof Error
+            ? err.message
+            : 'An unexpected error occurred during Excel export.',
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  }, [isExporting, isLoading, teams]);
 
   // Request to open or close registration (opens confirmation dialog)
   const handleRequestToggleStatus = useCallback(() => {
@@ -663,7 +841,7 @@ function AdminRegistrationContent() {
         </div>
       </div>
 
-      {/* Teams Table with Search, Filtering, and Inline Lock Actions */}
+      {/* Teams Table with Search, Filtering, Inline Lock Actions, and Phase 5 Bulk Selection */}
       <TeamsTable
         teams={teams}
         onSelectTeam={(team) => setSelectedTeam(team)}
@@ -676,6 +854,15 @@ function AdminRegistrationContent() {
         onToggleLock={handleToggleTeamLock}
         updatingLockTeamId={updatingLockTeamId}
         isGlobalUpdating={isGlobalUpdating}
+        selectedTeamIds={selectedTeamIds}
+        onToggleSelectTeam={handleToggleSelectTeam}
+        onSelectAll={handleSelectAll}
+        onClearSelection={handleClearSelection}
+        onBulkLock={handleBulkLock}
+        onRequestDelete={handleRequestOpenDeleteModal}
+        isBulkUpdating={isBulkUpdating}
+        onExport={handleExportTeamDetails}
+        isExporting={isExporting}
       />
 
       {/* Team Details Modal with Lock Action */}
@@ -691,6 +878,21 @@ function AdminRegistrationContent() {
         isUpdatingLock={updatingLockTeamId === selectedTeam?.id}
         isGlobalUpdating={isGlobalUpdating}
         isAnyUpdating={isAnyUpdating}
+      />
+
+      {/* Phase 5B: Team Delete Confirmation Modal */}
+      <TeamDeleteModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => {
+          if (!isDeletingTeams) {
+            setIsDeleteModalOpen(false);
+            setDeleteErrorMessage(null);
+          }
+        }}
+        onConfirm={handleConfirmDelete}
+        isDeleting={isDeletingTeams}
+        selectedTeams={teams.filter((t) => selectedTeamIds.includes(t.id))}
+        errorMessage={deleteErrorMessage}
       />
 
       {/* Global Confirmation Modal */}

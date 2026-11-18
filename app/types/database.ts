@@ -61,6 +61,7 @@ export interface Database {
           name: string
           email: string
           college: string | null
+          phone: string | null
           created_at: string
         }
         Insert: {
@@ -69,6 +70,7 @@ export interface Database {
           name: string
           email: string
           college?: string | null
+          phone?: string | null
           created_at?: string
         }
         Update: {
@@ -77,6 +79,7 @@ export interface Database {
           name?: string
           email?: string
           college?: string | null
+          phone?: string | null
           created_at?: string
         }
         Relationships: [
@@ -440,6 +443,12 @@ export interface Database {
       }
       reset_auction: {
         Args: Record<PropertyKey, never>
+        Returns: Json
+      }
+      delete_teams: {
+        Args: {
+          p_team_ids: string[]
+        }
         Returns: Json
       }
       create_auction_topic: {

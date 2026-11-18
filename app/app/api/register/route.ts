@@ -22,6 +22,7 @@ interface RegisterRequestBody {
   members: Array<{
     name: string;
     usn: string;
+    phone?: string;
   }>;
 }
 
@@ -309,16 +310,47 @@ export async function POST(request: Request) {
     const teamId = teamData.id;
 
     // 6. Insert Captain into `members` table
-    const { data: captainData, error: captainError } = await db
+    let captainData: { id: string } | null = null;
+    let captainError: { message?: string } | null = null;
+
+    const captainPayloadWithPhone = {
+      team_id: teamId,
+      name: captain.name.trim(),
+      email: captainEmail,
+      college: `MITE - Sem ${captainSemester} (Ph: ${captainPhone})`,
+      phone: captainPhone,
+    };
+
+    const firstCaptainAttempt = await db
       .from("members")
-      .insert({
-        team_id: teamId,
-        name: captain.name.trim(),
-        email: captainEmail,
-        college: `MITE - Sem ${captainSemester} (Ph: ${captainPhone})`,
-      })
+      .insert(captainPayloadWithPhone)
       .select("id")
       .single();
+
+    if (
+      firstCaptainAttempt.error &&
+      (firstCaptainAttempt.error.message?.includes("phone") ||
+        firstCaptainAttempt.error.message?.includes("column"))
+    ) {
+      console.warn(
+        "[Register API] phone column not yet created in members table; falling back to schema without phone column"
+      );
+      const fallbackCaptainAttempt = await db
+        .from("members")
+        .insert({
+          team_id: teamId,
+          name: captain.name.trim(),
+          email: captainEmail,
+          college: `MITE - Sem ${captainSemester} (Ph: ${captainPhone})`,
+        })
+        .select("id")
+        .single();
+      captainData = fallbackCaptainAttempt.data;
+      captainError = fallbackCaptainAttempt.error;
+    } else {
+      captainData = firstCaptainAttempt.data;
+      captainError = firstCaptainAttempt.error;
+    }
 
     if (captainError) {
       console.error("[Register API] Error inserting captain:", captainError);
@@ -334,12 +366,29 @@ export async function POST(request: Request) {
     for (const tm of members) {
       if (tm.name?.trim() && tm.usn?.trim()) {
         const tmUsn = tm.usn.trim().toUpperCase();
-        await db.from("members").insert({
+        const tmPhone = tm.phone?.trim() || null;
+
+        const memberPayload = {
           team_id: teamId,
           name: tm.name.trim(),
           email: `${tmUsn.toLowerCase()}@mite.ac.in`,
           college: "MITE",
-        });
+          ...(tmPhone ? { phone: tmPhone } : {}),
+        };
+
+        const memRes = await db.from("members").insert(memberPayload);
+        if (
+          memRes.error &&
+          (memRes.error.message?.includes("phone") ||
+            memRes.error.message?.includes("column"))
+        ) {
+          await db.from("members").insert({
+            team_id: teamId,
+            name: tm.name.trim(),
+            email: `${tmUsn.toLowerCase()}@mite.ac.in`,
+            college: "MITE",
+          });
+        }
       }
     }
 
