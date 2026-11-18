@@ -182,7 +182,7 @@ export function TeamDetailsModal({
                       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400 font-mono">
                         <span>{tm.email}</span>
                         <span>•</span>
-                        <span>Phone: <strong className="font-semibold text-zinc-700 dark:text-zinc-300">{tm.phone?.trim() || 'Not Provided'}</strong></span>
+                        <span>Phone: <strong className="font-semibold text-zinc-700 dark:text-zinc-300 font-mono">{tm.phone?.trim() || 'Not Provided'}</strong></span>
                       </div>
                     </div>
 

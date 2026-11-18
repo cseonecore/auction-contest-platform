@@ -19,14 +19,17 @@ export const FigmaRegistrationForm: React.FC = () => {
   // Member 2
   const [m2Name, setM2Name] = useState("");
   const [m2Usn, setM2Usn] = useState("");
+  const [m2Phone, setM2Phone] = useState("");
 
   // Member 3
   const [m3Name, setM3Name] = useState("");
   const [m3Usn, setM3Usn] = useState("");
+  const [m3Phone, setM3Phone] = useState("");
 
   // Member 4
   const [m4Name, setM4Name] = useState("");
   const [m4Usn, setM4Usn] = useState("");
+  const [m4Phone, setM4Phone] = useState("");
 
   // Form State
   const [loading, setLoading] = useState(false);
@@ -112,16 +115,38 @@ export const FigmaRegistrationForm: React.FC = () => {
       return;
     }
 
-    // 4. Member 3 validation (if team size >= 3)
-    if (teamSize >= 3 && (!m3Name.trim() || !m3Usn.trim())) {
-      setError("Please fill in Member 3 Name and USN.");
+    const cleanM2Phone = m2Phone.replace(/[\s-]/g, "");
+    if (!cleanM2Phone || cleanM2Phone.length < 10) {
+      setError("Please enter a valid 10-digit Phone Number for Member 2.");
       return;
     }
 
+    // 4. Member 3 validation (if team size >= 3)
+    let cleanM3Phone = "";
+    if (teamSize >= 3) {
+      if (!m3Name.trim() || !m3Usn.trim()) {
+        setError("Please fill in Member 3 Name and USN.");
+        return;
+      }
+      cleanM3Phone = m3Phone.replace(/[\s-]/g, "");
+      if (!cleanM3Phone || cleanM3Phone.length < 10) {
+        setError("Please enter a valid 10-digit Phone Number for Member 3.");
+        return;
+      }
+    }
+
     // 5. Member 4 validation (if team size == 4)
-    if (teamSize >= 4 && (!m4Name.trim() || !m4Usn.trim())) {
-      setError("Please fill in Member 4 Name and USN.");
-      return;
+    let cleanM4Phone = "";
+    if (teamSize >= 4) {
+      if (!m4Name.trim() || !m4Usn.trim()) {
+        setError("Please fill in Member 4 Name and USN.");
+        return;
+      }
+      cleanM4Phone = m4Phone.replace(/[\s-]/g, "");
+      if (!cleanM4Phone || cleanM4Phone.length < 10) {
+        setError("Please enter a valid 10-digit Phone Number for Member 4.");
+        return;
+      }
     }
 
     // 6. Check for duplicate USNs
@@ -138,14 +163,14 @@ export const FigmaRegistrationForm: React.FC = () => {
     setLoading(true);
 
     try {
-      const members = [
-        { name: m2Name.trim(), usn: m2Usn.trim().toUpperCase() },
+      const members: Array<{ name: string; usn: string; phone: string }> = [
+        { name: m2Name.trim(), usn: m2Usn.trim().toUpperCase(), phone: cleanM2Phone },
       ];
       if (teamSize >= 3) {
-        members.push({ name: m3Name.trim(), usn: m3Usn.trim().toUpperCase() });
+        members.push({ name: m3Name.trim(), usn: m3Usn.trim().toUpperCase(), phone: cleanM3Phone });
       }
       if (teamSize >= 4) {
-        members.push({ name: m4Name.trim(), usn: m4Usn.trim().toUpperCase() });
+        members.push({ name: m4Name.trim(), usn: m4Usn.trim().toUpperCase(), phone: cleanM4Phone });
       }
 
       const res = await fetch("/api/register", {
@@ -432,6 +457,14 @@ export const FigmaRegistrationForm: React.FC = () => {
                   onChange={(e) => setM2Usn(e.target.value.toUpperCase())}
                   className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
                 />
+                <input
+                  type="tel"
+                  required
+                  placeholder="Phone Number"
+                  value={m2Phone}
+                  onChange={(e) => setM2Phone(e.target.value)}
+                  className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
+                />
               </div>
             </div>
 
@@ -456,6 +489,14 @@ export const FigmaRegistrationForm: React.FC = () => {
                     placeholder="USN [ 4MT2XBBMMM ]"
                     value={m3Usn}
                     onChange={(e) => setM3Usn(e.target.value.toUpperCase())}
+                    className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
+                  />
+                  <input
+                    type="tel"
+                    required
+                    placeholder="Phone Number"
+                    value={m3Phone}
+                    onChange={(e) => setM3Phone(e.target.value)}
                     className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
                   />
                 </div>
@@ -483,6 +524,14 @@ export const FigmaRegistrationForm: React.FC = () => {
                     placeholder="USN [ 4MT2XBBMMM ]"
                     value={m4Usn}
                     onChange={(e) => setM4Usn(e.target.value.toUpperCase())}
+                    className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
+                  />
+                  <input
+                    type="tel"
+                    required
+                    placeholder="Phone Number"
+                    value={m4Phone}
+                    onChange={(e) => setM4Phone(e.target.value)}
                     className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
                   />
                 </div>

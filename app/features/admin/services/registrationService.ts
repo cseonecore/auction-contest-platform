@@ -169,7 +169,7 @@ export async function fetchRegisteredTeams(): Promise<ServiceResult<RegisteredTe
 
       const members: RegisteredMember[] = rawMembers.map((m) => ({
         ...m,
-        phone: m.phone ?? null,
+        phone: m.phone ? m.phone.trim() : null,
         parsedUsn: parseUsnFromEmail(m.email),
       }));
 

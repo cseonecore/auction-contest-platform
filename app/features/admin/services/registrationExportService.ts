@@ -241,9 +241,14 @@ export async function exportTeamDetailsToExcel(
     ];
 
     for (let i = 0; i < effectiveMemberPairs; i++) {
-      const nameHeader = i === 0 ? 'Member Name' : `Member ${i} Name`;
-      const usnHeader = i === 0 ? 'Member USN' : `Member ${i} USN`;
-      const mobileHeader = i === 0 ? 'Member Mobile Number' : `Member ${i} Mobile Number`;
+      const nameHeader =
+        effectiveMemberPairs === 1 ? 'Member Name' : `Member ${i + 1} Name`;
+      const usnHeader =
+        effectiveMemberPairs === 1 ? 'Member USN' : `Member ${i + 1} USN`;
+      const mobileHeader =
+        effectiveMemberPairs === 1
+          ? 'Member Mobile Number'
+          : `Member ${i + 1} Mobile Number`;
 
       columns.push({ header: nameHeader, key: `member_${i}_name`, width: 24 });
       columns.push({ header: usnHeader, key: `member_${i}_usn`, width: 18 });
