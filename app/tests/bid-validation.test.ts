@@ -11,7 +11,7 @@ describe("validateBid", () => {
   const base: BidValidationInput = {
     currentBid: 0,
     minBid: 10,
-    minRaise: 10,
+    minRaise: 5,
     walletBalance: 100,
     isLeader: false,
     hasWonRound: false,
@@ -27,7 +27,7 @@ describe("validateBid", () => {
 
   it("requires the minimum raise above the current bid", () => {
     const result = validateBid({ ...base, currentBid: 30 });
-    expect(result.minNextBid).toBe(40);
+    expect(result.minNextBid).toBe(35);
     expect(result.canBid).toBe(true);
   });
 
@@ -54,13 +54,13 @@ describe("validateBid", () => {
     expect(result.canBid).toBe(false);
   });
 
-  it("blocks a team that already won in the round", () => {
+  it("allows a team that already won in the round to bid (multiple wins permitted)", () => {
     const result = validateBid({ ...base, hasWonRound: true });
-    expect(result.canBid).toBe(false);
+    expect(result.canBid).toBe(true);
   });
 
   it("blocks a team that cannot afford the next bid", () => {
-    const result = validateBid({ ...base, currentBid: 90, walletBalance: 95 });
+    const result = validateBid({ ...base, currentBid: 90, walletBalance: 94 });
     expect(result.canBid).toBe(false);
     expect(result.reason).toMatch(/insufficient/i);
   });
@@ -97,5 +97,32 @@ describe("validateBid", () => {
     // window expired must still let the backend decide.
     const result = validateBid({ ...base, timerExpired: true });
     expect(result.canBid).toBe(true);
+  });
+
+  // ── 3-Round rules & question limits ─────────────────────────────────
+
+  it("blocks a team that has already acquired 2 questions across the contest", () => {
+    const result = validateBid({ ...base, wonCount: 2 });
+    expect(result.canBid).toBe(false);
+    expect(result.reason).toMatch(/maximum limit of 2 problem statements/i);
+  });
+
+  it("allows a team with 1 question to bid in Round 2", () => {
+    const result = validateBid({ ...base, wonCount: 1, currentRound: 2 });
+    expect(result.canBid).toBe(true);
+  });
+
+  it("blocks a team with 2 questions from participating in Round 3 recovery auction", () => {
+    const result = validateBid({ ...base, wonCount: 2, currentRound: 3 });
+    expect(result.canBid).toBe(false);
+    expect(result.reason).toMatch(/cannot participate in Round 3/i);
+  });
+
+  it("allows a team with fewer than 2 questions (0 or 1) to bid in Round 3", () => {
+    const r0 = validateBid({ ...base, wonCount: 0, currentRound: 3 });
+    expect(r0.canBid).toBe(true);
+
+    const r1 = validateBid({ ...base, wonCount: 1, currentRound: 3 });
+    expect(r1.canBid).toBe(true);
   });
 });

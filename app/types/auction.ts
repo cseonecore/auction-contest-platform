@@ -94,8 +94,8 @@ export interface SkipSlotResult {
 // Enum-like types
 // ─────────────────────────────────────────────────────────────
 
-export type SlotStatus  = SlotRow['status']   // 'pending' | 'open' | 'sold' | 'skipped'
-export type AuctionRound = 1 | 2              // 1 = Easy (Round 1), 2 = Hard (Round 2)
+export type SlotStatus  = SlotRow['status']   // 'pending' | 'open' | 'sold' | 'skipped' | 'unsold'
+export type AuctionRound = 1 | 2 | 3          // 1 = Easy (Round 1), 2 = Hard (Round 2), 3 = Recovery (Round 3)
 
 export type AuctionTimerStatus =
   | "idle"

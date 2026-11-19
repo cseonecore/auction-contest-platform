@@ -7,11 +7,12 @@ import { createClient } from "@supabase/supabase-js";
  * variables are not yet loaded.
  */
 const supabaseUrl =
-  process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  "https://qqbuauryvhgssmmxiiuh.supabase.co";
 const supabaseKey =
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  "placeholder-key";
+  "sb_publishable_nRvQFOW3SK82rWBY6VsDGw_yw5-3Itj";
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
 export type SupabaseClient = typeof supabase;

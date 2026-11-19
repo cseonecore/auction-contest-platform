@@ -53,8 +53,14 @@ async function call<T>(
 }
 
 // ── Session lifecycle ────────────────────────────────────────────
-export const startAuction = (round: 1 | 2 = 1) =>
+export const startAuction = (round: 1 | 2 | 3 = 1) =>
   call("start_auction", { p_round: round });
+
+export const setAuctionRound = (round: 1 | 2 | 3) =>
+  call("set_auction_round", { p_round: round });
+
+export const finalizeRound3Eliminations = () =>
+  call("finalize_round_3_eliminations");
 
 export const selectAuctionQuestion = (slotId: string) =>
   call("select_auction_question", { p_slot_id: slotId });
@@ -239,3 +245,6 @@ export const openSlot = async (
   slotId: string,
   startingBid: number = 10
 ): Promise<ServiceResult<OpenSlotResult>> => adminOpenSlot(slotId, startingBid);
+
+/** Consolidated authoritative bidding results across all teams. */
+export const fetchBiddingResults = () => call<import("@/features/admin/types/auctionAdmin").BiddingResultTeam[]>("get_bidding_results");

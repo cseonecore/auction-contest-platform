@@ -106,23 +106,36 @@ export async function POST(request: Request) {
     }
 
     // 3. Identify the Captain of this team
+    const captainEmail = `${cleanCaptainUsn.toLowerCase()}@mite.ac.in`;
+    const memberMatchingUsn = members.find(
+      (m) =>
+        m.email?.toLowerCase() === captainEmail ||
+        m.email?.toUpperCase().includes(cleanCaptainUsn) ||
+        (m.college && m.college.toUpperCase().includes(cleanCaptainUsn))
+    );
+
     let captain = null;
     if (team.captain_id) {
       captain = members.find((m) => m.id === team.captain_id);
     }
-    if (!captain) {
-      captain =
-        members.find(
-          (m) =>
-            m.college &&
-            (m.college.toLowerCase().includes("sem") ||
-              m.college.toLowerCase().includes("captain") ||
-              m.college.toLowerCase().includes("ph"))
-        ) || members[0];
+
+    // If the registered captain was misaligned or stored under a member row matching the typed USN
+    if (!captain || (memberMatchingUsn && memberMatchingUsn.id !== captain?.id && memberMatchingUsn.college?.toLowerCase().includes("sem"))) {
+      if (memberMatchingUsn && memberMatchingUsn.college && memberMatchingUsn.college.toLowerCase().includes("sem")) {
+        captain = memberMatchingUsn;
+      } else if (!captain) {
+        captain =
+          members.find(
+            (m) =>
+              m.college &&
+              (m.college.toLowerCase().includes("sem") ||
+                m.college.toLowerCase().includes("captain") ||
+                m.college.toLowerCase().includes("ph"))
+          ) || members[0];
+      }
     }
 
     // 4. Strictly match Captain USN against the Captain's registered USN/email (serving as password)
-    const captainEmail = `${cleanCaptainUsn.toLowerCase()}@mite.ac.in`;
     const isCaptainMatch =
       captain?.email &&
       (captain.email.toLowerCase() === captainEmail ||
@@ -171,6 +184,16 @@ export async function POST(request: Request) {
         { error: authOutcome.error },
         { status: authOutcome.status ?? 401 }
       );
+    }
+
+    // Ensure database captain alignment is synced with the active Auth account
+    if (authOutcome.userId) {
+      try {
+        await db.from("teams").update({ captain_id: authOutcome.userId }).eq("id", team.id);
+        await db.from("members").update({ id: authOutcome.userId }).eq("team_id", team.id).ilike("email", captainEmail);
+      } catch (syncErr) {
+        console.warn("[Login API] Notice syncing captain identity:", syncErr);
+      }
     }
 
     // 6. Successful strictly verified login

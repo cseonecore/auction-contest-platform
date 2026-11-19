@@ -143,31 +143,60 @@ export async function fetchCurrentIdentity(): Promise<
     }
 
     const userId = authData.user.id;
+    const userEmail = (authData.user.email ?? "").toLowerCase();
 
-    const { data: member, error: memberError } = await supabase
+    // 1. Primary lookup by auth user id
+    let { data: member, error: memberError } = await supabase
       .from("members")
-      .select("team_id, team:teams(id, name, captain_id)")
+      .select("id, team_id, email, college, team:teams(id, name, captain_id)")
       .eq("id", userId)
       .maybeSingle();
 
-    if (memberError) {
+    // 2. Secondary fallback by registered email
+    if (!member && userEmail) {
+      const { data: memberByEmail } = await supabase
+        .from("members")
+        .select("id, team_id, email, college, team:teams(id, name, captain_id)")
+        .ilike("email", userEmail)
+        .maybeSingle();
+      if (memberByEmail) {
+        member = memberByEmail;
+      }
+    }
+
+    if (memberError && !member) {
       return { success: false, error: toMessage(memberError) };
     }
 
-    const relation = member?.team as
-      | { id: string; name: string; captain_id: string | null }
-      | { id: string; name: string; captain_id: string | null }[]
-      | null;
+    let team = Array.isArray(member?.team) ? member.team[0] : member?.team;
 
-    const team = Array.isArray(relation) ? relation[0] : relation;
+    // 3. Tertiary fallback: team captain_id directly points to auth user id
+    if (!team) {
+      const { data: teamByCaptain } = await supabase
+        .from("teams")
+        .select("id, name, captain_id")
+        .eq("captain_id", userId)
+        .maybeSingle();
+      if (teamByCaptain) {
+        team = teamByCaptain;
+      }
+    }
+
+    const isCaptain = Boolean(
+      (team && team.captain_id === userId) ||
+      (team && member && team.captain_id === member.id) ||
+      (member?.college && member.college.toLowerCase().includes("captain")) ||
+      authData.user.user_metadata?.role === "captain" ||
+      authData.user.app_metadata?.role === "captain"
+    );
 
     return {
       success: true,
       data: {
         userId,
-        teamId: member?.team_id ?? null,
+        teamId: member?.team_id ?? team?.id ?? null,
         teamName: team?.name ?? null,
-        isCaptain: team?.captain_id === userId,
+        isCaptain,
       },
     };
   } catch (err: unknown) {

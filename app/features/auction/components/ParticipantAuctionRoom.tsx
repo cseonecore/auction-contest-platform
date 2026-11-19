@@ -326,6 +326,8 @@ export function ParticipantAuctionRoom() {
                 isLeader={isLeader}
                 walletBalance={myTeam?.balance ?? teamState?.balance ?? 0}
                 hasWonRound={hasWonRound}
+                wonCount={teamState?.won_slots?.length ?? 0}
+                currentRound={session?.round ?? activeSlot?.round ?? 1}
                 minBid={settings.min_bid}
                 minRaise={settings.min_raise}
                 isCaptain={identity.isCaptain}
@@ -345,7 +347,7 @@ export function ParticipantAuctionRoom() {
                 <div>
                   <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
                     {activeSlot?.topic?.title
-                      ? `Problem Statement ${activeSlot.question_number ?? ""}: ${activeSlot.topic.title}`
+                      ? `Problem Statement ${activeSlot.question_number != null ? String(activeSlot.question_number).padStart(2, "0") : ""}: ${activeSlot.topic.title}`
                       : "Problem Statement"}
                   </h2>
                   <div className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mt-1.5">
@@ -357,8 +359,8 @@ export function ParticipantAuctionRoom() {
 
                 {activeSlot?.question_number != null && (
                   <div className="bg-[#bfdbfe] text-[#1e40af] text-xs sm:text-sm font-black px-3 py-1 rounded-full shrink-0 shadow-sm">
-                    {activeSlot.question_number}
-                    {state.total_items ? `/${state.total_items}` : ""}
+                    {String(activeSlot.question_number).padStart(2, "0")}
+                    {state.total_items ? ` / ${String(state.total_items).padStart(2, "0")}` : ""}
                   </div>
                 )}
               </div>

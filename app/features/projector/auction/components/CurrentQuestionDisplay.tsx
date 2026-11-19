@@ -27,7 +27,7 @@ export function CurrentQuestionDisplay({ item }: CurrentQuestionDisplayProps) {
       <div className="flex items-start justify-between gap-8">
         <div>
           <span className="text-2xl font-black uppercase tracking-[0.25em] text-[#fe5102]">
-            Problem Statement {item.question_number ?? ""}
+            Problem Statement {item.question_number != null ? String(item.question_number).padStart(2, "0") : ""}
           </span>
           <h1 className="mt-3 text-6xl font-black text-white leading-tight tracking-tight">
             {item.topic.title}

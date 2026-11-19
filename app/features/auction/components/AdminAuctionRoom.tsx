@@ -130,6 +130,7 @@ const BTN_NEUTRAL = `${BTN_BASE} bg-zinc-700 hover:bg-zinc-600`;
 const BTN_RED = `${BTN_BASE} bg-rose-600 hover:bg-rose-500`;
 const BTN_ORANGE = `${BTN_BASE} bg-[#fe5102] hover:bg-[#d94502]`;
 const BTN_BLUE = `${BTN_BASE} bg-blue-600 hover:bg-blue-500`;
+const BTN_PURPLE = `${BTN_BASE} bg-purple-600 hover:bg-purple-500`;
 
 // ─────────────────────────────────────────────────────────────
 // Confirmation dialog
@@ -471,41 +472,66 @@ export function AdminAuctionRoom() {
     };
   }, [state.active_slot, activeSlot]);
 
-  // ── Derived: pending queue + browsing pointer ───────────────
+  const currentRound = (session?.round ?? 1) as 1 | 2 | 3;
+  const [queueRoundFilter, setQueueRoundFilter] = useState<number | "all">("all");
+  const [teamStatusFilter, setTeamStatusFilter] = useState<
+    "all" | "eligible" | "completed" | "needing" | "eliminated"
+  >("all");
+
+  // ── Derived: ordered slots & pending queue + browsing pointer ───────────────
+  const orderedSlots = useMemo(
+    () =>
+      [...slots].sort(
+        (a, b) =>
+          a.round - b.round ||
+          (a.question_number ?? MAX_SLOTS + 1) - (b.question_number ?? MAX_SLOTS + 1) ||
+          a.id.localeCompare(b.id)
+      ),
+    [slots]
+  );
+
   const pendingQueue = useMemo(
     () =>
-      slots
-        .filter((s) => s.status === "pending")
-        .sort(
-          (a, b) =>
-            a.round - b.round ||
-            (a.question_number ?? MAX_SLOTS + 1) - (b.question_number ?? MAX_SLOTS + 1) ||
-            a.id.localeCompare(b.id)
-        ),
-    [slots]
+      orderedSlots.filter((s) => {
+        const topicSold = orderedSlots.some(
+          (k) => k.topic_id === s.topic_id && k.status === "sold"
+        );
+        if (topicSold) return false;
+
+        const isPending = s.status === "pending";
+        const isRecoveryEligible =
+          currentRound === 3 && (s.status === "skipped" || s.status === "unsold");
+
+        if (!isPending && !isRecoveryEligible) return false;
+
+        if (queueRoundFilter !== "all") {
+          return s.round === queueRoundFilter;
+        }
+        return true;
+      }),
+    [orderedSlots, currentRound, queueRoundFilter]
   );
 
   const [viewedId, setViewedId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (liveItem) return;
     if (viewedId && pendingQueue.some((s) => s.id === viewedId)) return;
     setViewedId(pendingQueue[0]?.id ?? null);
-  }, [liveItem, viewedId, pendingQueue]);
+  }, [viewedId, pendingQueue]);
 
   const viewedSlot = useMemo(
     () => pendingQueue.find((s) => s.id === viewedId) ?? null,
     [pendingQueue, viewedId]
   );
 
-  const totalCount = slots.length;
+  const totalCount = orderedSlots.length;
 
   const orderedPosition = useCallback(
     (slotId: string): number | null => {
-      const idx = slots.findIndex((s) => s.id === slotId);
+      const idx = orderedSlots.findIndex((s) => s.id === slotId);
       return idx >= 0 ? idx + 1 : null;
     },
-    [slots]
+    [orderedSlots]
   );
 
   // ── Timer (server-authoritative, frozen while paused) ───────
@@ -541,10 +567,10 @@ export function AdminAuctionRoom() {
 
   // ── Actions ─────────────────────────────────────────────────
   const viewedNumber = viewedSlot
-    ? viewedSlot.question_number ?? orderedPosition(viewedSlot.id) ?? 1
+    ? orderedPosition(viewedSlot.id) ?? viewedSlot.question_number ?? 1
     : 0;
   const displayNumber = liveItem
-    ? liveItem.question_number ?? orderedPosition(liveItem.id) ?? 1
+    ? orderedPosition(liveItem.id) ?? liveItem.question_number ?? 1
     : viewedNumber;
   const cardItem = liveItem ?? viewedSlot;
   const isLive = !!liveItem;
@@ -782,14 +808,19 @@ export function AdminAuctionRoom() {
   );
 
   // ── Leaderboard (questions won, descending) ─────────────────
-  const winsByTeam = useMemo(() => {
-    const map = new Map<string, number>();
+  const { winsByTeam, spentByTeam } = useMemo(() => {
+    const winsMap = new Map<string, number>();
+    const spentMap = new Map<string, number>();
     for (const s of slots) {
       if (s.status === "sold" && s.winner_team_id) {
-        map.set(s.winner_team_id, (map.get(s.winner_team_id) ?? 0) + 1);
+        winsMap.set(s.winner_team_id, (winsMap.get(s.winner_team_id) ?? 0) + 1);
+        spentMap.set(
+          s.winner_team_id,
+          (spentMap.get(s.winner_team_id) ?? 0) + (s.current_bid ?? 0)
+        );
       }
     }
-    return map;
+    return { winsByTeam: winsMap, spentByTeam: spentMap };
   }, [slots]);
 
   // Roster: authoritative live state first, admin allocations as
@@ -813,21 +844,135 @@ export function AdminAuctionRoom() {
 
   const boardRows = useMemo(() => {
     return roster
-      .map((t, i) => ({
-        id: t.id,
-        name: t.name,
-        balance: t.balance,
-        currentBid: 0,
-        stat: winsByTeam.get(t.id) ?? 0,
-        eliminated: t.eliminated,
-        // Stable mascot per team (roster order, independent of rank).
-        characterIndex: (i % 10) + 1,
-      }))
+      .map((t, i) => {
+        const teamWins = winsByTeam.get(t.id) ?? 0;
+        const totalSpent = spentByTeam.get(t.id) ?? 0;
+        const currentBid = liveItem?.leader_team_id === t.id ? liveItem.current_bid : 0;
+        return {
+          id: t.id,
+          name: t.name,
+          balance: t.balance,
+          currentBid,
+          highestBid: currentBid,
+          totalSpent,
+          winsCount: teamWins,
+          stat: totalSpent > 0 ? totalSpent : teamWins,
+          eliminated: t.eliminated,
+          // Stable mascot per team (roster order, independent of rank).
+          characterIndex: (i % 10) + 1,
+        };
+      })
       .sort(
         (a, b) =>
-          b.stat - a.stat || b.balance - a.balance || a.name.localeCompare(b.name)
+          b.winsCount - a.winsCount ||
+          b.totalSpent - a.totalSpent ||
+          b.balance - a.balance ||
+          a.name.localeCompare(b.name)
       );
-  }, [roster, winsByTeam]);
+  }, [roster, winsByTeam, spentByTeam, liveItem]);
+
+  // ── 3-Round Allocation & Qualification Analysis ───────────────
+  const roundMetrics = useMemo(() => {
+    const completedTeams: typeof roster = [];
+    const inProgressTeams: typeof roster = [];
+    const needBothTeams: typeof roster = [];
+    const eliminatedTeams: typeof roster = [];
+
+    roster.forEach((team) => {
+      const won = winsByTeam.get(team.id) ?? 0;
+      if (team.eliminated) {
+        eliminatedTeams.push(team);
+      } else if (won >= 2) {
+        completedTeams.push(team);
+      } else if (won === 1) {
+        inProgressTeams.push(team);
+      } else {
+        needBothTeams.push(team);
+      }
+    });
+
+    const activeNeedingQuestions = [...inProgressTeams, ...needBothTeams];
+    const round1Eligible = roster.filter(
+      (t) => !t.eliminated && (winsByTeam.get(t.id) ?? 0) === 0
+    );
+    const round2Eligible = activeNeedingQuestions;
+    const round3Eligible = activeNeedingQuestions;
+
+    const currentEligible =
+      currentRound === 1
+        ? round1Eligible
+        : currentRound === 2
+          ? round2Eligible
+          : round3Eligible;
+
+    return {
+      totalTeams: roster.length,
+      completedTeams,
+      inProgressTeams,
+      needBothTeams,
+      eliminatedTeams,
+      activeNeedingQuestions,
+      currentEligible,
+      isRound3: currentRound === 3,
+    };
+  }, [roster, winsByTeam, currentRound]);
+
+  const filteredTeams = useMemo(() => {
+    switch (teamStatusFilter) {
+      case "eligible":
+        return roundMetrics.currentEligible;
+      case "completed":
+        return roundMetrics.completedTeams;
+      case "needing":
+        return roundMetrics.activeNeedingQuestions;
+      case "eliminated":
+        return roundMetrics.eliminatedTeams;
+      default:
+        return roster;
+    }
+  }, [teamStatusFilter, roundMetrics, roster]);
+
+  const requestSetRound = useCallback(
+    (targetRound: 1 | 2 | 3) => {
+      const labels: Record<number, string> = {
+        1: "Round 1 (First Question Allocation)",
+        2: "Round 2 (Second Question Allocation)",
+        3: "Round 3 (Recovery Auction)",
+      };
+      setConfirm({
+        title: `Transition to ${labels[targetRound]}?`,
+        body: `The active contest session will switch to Round ${targetRound}. All participants and projector screens will update to Round ${targetRound} in real time.`,
+        confirmLabel: `Switch to Round ${targetRound}`,
+        tone: "neutral",
+        run: async () => {
+          const ok = await actions.setRound(targetRound);
+          if (ok) {
+            refreshAll();
+            void refreshLive();
+          }
+          return ok;
+        },
+      });
+    },
+    [actions, refreshAll, refreshLive]
+  );
+
+  const requestFinalizeEliminations = useCallback(() => {
+    setConfirm({
+      title: "Finalize Contest Qualifications & Eliminations?",
+      body: "This evaluates all teams against the 2-question qualification requirement. Teams with 2 acquired questions will qualify to continue. Teams with fewer than 2 questions will be permanently marked eliminated in the database and barred from further bidding.",
+      confirmLabel: "Finalize & Eliminate",
+      tone: "danger",
+      run: async () => {
+        const ok = await actions.finalizeEliminations();
+        if (ok) {
+          refreshAll();
+          void refreshLive();
+        }
+        return ok;
+      },
+    });
+  }, [actions, refreshAll, refreshLive]);
 
   // ── Card content pieces ─────────────────────────────────────
   const topic = cardItem?.topic ?? null;
@@ -856,42 +1001,454 @@ export function AdminAuctionRoom() {
         : "bg-white/20 text-white";
 
   // ── Render ──────────────────────────────────────────────────
-  return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
-      {/* 1 ─ Top-level session controls */}
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <button
-          type="button"
-          onClick={openUpload}
-          disabled={busy}
-          className={BTN_ORANGE}
-        >
-          Upload Slots
-        </button>
+  const r1Count = orderedSlots.filter((s) => s.round === 1).length;
+  const r2Count = orderedSlots.filter((s) => s.round === 2).length;
+  const r3Count = orderedSlots.filter(
+    (s) => s.round === 3 || s.status === "skipped" || s.status === "unsold"
+  ).length;
 
-        {sessionActive ? (
+  return (
+    <div className="w-full space-y-6">
+      {/* 1 ─ Top-level session & round quick controls */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           <button
             type="button"
-            onClick={requestStop}
+            onClick={openUpload}
             disabled={busy}
-            className={BTN_GREEN}
+            className={BTN_ORANGE}
           >
-            Stop Session
+            Upload Slots
           </button>
-        ) : (
+
+          {sessionActive ? (
+            <button
+              type="button"
+              onClick={requestStop}
+              disabled={busy}
+              className={BTN_GREEN}
+            >
+              Stop Session
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void actions.start()}
+              disabled={busy}
+              className={BTN_GREEN}
+            >
+              Start Session
+            </button>
+          )}
+        </div>
+
+        {/* Round Switcher Quick Action Buttons */}
+        <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-white/10 bg-[#16171b] p-1.5">
+          <span className="text-[11px] font-bold text-zinc-400 px-2 uppercase tracking-wider">
+            Round:
+          </span>
           <button
             type="button"
-            onClick={() => void actions.start()}
+            onClick={() => requestSetRound(1)}
             disabled={busy}
-            className={BTN_GREEN}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              currentRound === 1
+                ? "bg-[#fe5102] text-white shadow-md"
+                : "text-zinc-400 hover:text-white hover:bg-white/5"
+            }`}
           >
-            Start Session
+            Round 1
           </button>
-        )}
+          <button
+            type="button"
+            onClick={() => requestSetRound(2)}
+            disabled={busy}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              currentRound === 2
+                ? "bg-[#fe5102] text-white shadow-md"
+                : "text-zinc-400 hover:text-white hover:bg-white/5"
+            }`}
+          >
+            Round 2
+          </button>
+          <button
+            type="button"
+            onClick={() => requestSetRound(3)}
+            disabled={busy}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              currentRound === 3
+                ? "bg-purple-600 text-white shadow-md animate-pulse"
+                : "text-zinc-400 hover:text-white hover:bg-white/5"
+            }`}
+          >
+            Round 3 (Recovery)
+          </button>
+        </div>
       </div>
+
+      {/* 1.5 ─ 3-Round Allocation & Qualification Management Panel */}
+      <section className="rounded-2xl border border-white/10 bg-[#17181c] p-5 sm:p-6 shadow-xl space-y-5">
+        {/* Banner Header with Round Objective */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-white/10">
+          <div>
+            <div className="flex items-center gap-2.5">
+              <span
+                className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
+                  currentRound === 3
+                    ? "bg-purple-950/80 border border-purple-500/40 text-purple-300"
+                    : "bg-[#fe5102]/20 border border-[#fe5102]/40 text-[#fe5102]"
+                }`}
+              >
+                {currentRound === 1
+                  ? "Round 1 Active"
+                  : currentRound === 2
+                    ? "Round 2 Active"
+                    : "Round 3 Recovery Active"}
+              </span>
+              <h2 className="text-lg sm:text-xl font-black text-white tracking-tight">
+                {currentRound === 1
+                  ? "First Question Allocation"
+                  : currentRound === 2
+                    ? "Second Question Allocation"
+                    : "Recovery Auction for Remaining Teams"}
+              </h2>
+            </div>
+            <p className="mt-1 text-xs text-zinc-400 leading-relaxed max-w-3xl">
+              {currentRound === 1 &&
+                "Objective: Every team gets an opportunity to acquire one problem statement. Teams that do not acquire a question in Round 1 remain eligible for subsequent rounds."}
+              {currentRound === 2 &&
+                "Objective: Teams get another opportunity to acquire a question. Target is 2 questions per team. Teams with 1 can acquire their 2nd; teams with 0 remain eligible."}
+              {currentRound === 3 &&
+                "Objective: ONLY teams with fewer than 2 acquired questions participate to reach the 2-question qualification requirement. Teams with 2 questions are strictly excluded."}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={requestFinalizeEliminations}
+              disabled={busy}
+              className={BTN_RED}
+              title="Check qualification requirement (>= 2 questions) and permanently eliminate teams with < 2 questions"
+            >
+              Finalize Eliminations
+            </button>
+          </div>
+        </div>
+
+        {/* 4 Allocation Stats Cards */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-950/20">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400 block">
+              Completed (2/2 Qs)
+            </span>
+            <div className="mt-1 flex items-baseline gap-2">
+              <span className="text-2xl font-black text-white">
+                {roundMetrics.completedTeams.length}
+              </span>
+              <span className="text-[11px] text-emerald-300 font-semibold">
+                Qualified
+              </span>
+            </div>
+          </div>
+
+          <div className="p-3.5 rounded-xl border border-blue-500/30 bg-blue-950/20">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-blue-400 block">
+              In Progress (1/2 Qs)
+            </span>
+            <div className="mt-1 flex items-baseline gap-2">
+              <span className="text-2xl font-black text-white">
+                {roundMetrics.inProgressTeams.length}
+              </span>
+              <span className="text-[11px] text-blue-300 font-semibold">
+                Needs 1 more
+              </span>
+            </div>
+          </div>
+
+          <div className="p-3.5 rounded-xl border border-amber-500/30 bg-amber-950/20">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400 block">
+              Needs 2 Qs (0/2)
+            </span>
+            <div className="mt-1 flex items-baseline gap-2">
+              <span className="text-2xl font-black text-white">
+                {roundMetrics.needBothTeams.length}
+              </span>
+              <span className="text-[11px] text-amber-300 font-semibold">
+                Eligible
+              </span>
+            </div>
+          </div>
+
+          <div className="p-3.5 rounded-xl border border-rose-500/30 bg-rose-950/20">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-rose-400 block">
+              Eliminated
+            </span>
+            <div className="mt-1 flex items-baseline gap-2">
+              <span className="text-2xl font-black text-white">
+                {roundMetrics.eliminatedTeams.length}
+              </span>
+              <span className="text-[11px] text-rose-300 font-semibold">
+                Barred
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Participating Teams in Current Round — Filter Tabs & Badges */}
+        <div className="space-y-3 pt-1">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setTeamStatusFilter("all")}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${
+                  teamStatusFilter === "all"
+                    ? "bg-white/15 text-white"
+                    : "text-zinc-400 hover:text-white"
+                }`}
+              >
+                All Teams ({roundMetrics.totalTeams})
+              </button>
+              <button
+                type="button"
+                onClick={() => setTeamStatusFilter("eligible")}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${
+                  teamStatusFilter === "eligible"
+                    ? "bg-[#fe5102]/20 border border-[#fe5102]/40 text-[#fe5102]"
+                    : "text-zinc-400 hover:text-white"
+                }`}
+              >
+                Participating in Round {currentRound} ({roundMetrics.currentEligible.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setTeamStatusFilter("completed")}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${
+                  teamStatusFilter === "completed"
+                    ? "bg-emerald-950/60 border border-emerald-500/40 text-emerald-300"
+                    : "text-zinc-400 hover:text-white"
+                }`}
+              >
+                Completed 2/2 ({roundMetrics.completedTeams.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setTeamStatusFilter("needing")}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${
+                  teamStatusFilter === "needing"
+                    ? "bg-amber-950/60 border border-amber-500/40 text-amber-300"
+                    : "text-zinc-400 hover:text-white"
+                }`}
+              >
+                Needs Questions ({roundMetrics.activeNeedingQuestions.length})
+              </button>
+              {roundMetrics.eliminatedTeams.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setTeamStatusFilter("eliminated")}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${
+                    teamStatusFilter === "eliminated"
+                      ? "bg-rose-950/60 border border-rose-500/40 text-rose-300"
+                      : "text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  Eliminated ({roundMetrics.eliminatedTeams.length})
+                </button>
+              )}
+            </div>
+            <span className="text-[11px] text-zinc-500 font-medium">
+              Showing {filteredTeams.length} of {roster.length} teams
+            </span>
+          </div>
+
+          {/* Teams Badges Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 max-h-56 overflow-y-auto p-1 rounded-xl border border-white/5 bg-black/20">
+            {filteredTeams.map((team) => {
+              const wonCount = winsByTeam.get(team.id) ?? 0;
+              const isComplete = wonCount >= 2;
+              const isEliminated = team.eliminated;
+              const isRound3Excluded = currentRound === 3 && isComplete;
+
+              return (
+                <div
+                  key={team.id}
+                  className={`p-2.5 rounded-xl border transition-all text-xs flex flex-col justify-between gap-1.5 ${
+                    isEliminated
+                      ? "border-rose-900/40 bg-rose-950/20 text-rose-300"
+                      : isComplete
+                        ? "border-emerald-500/30 bg-emerald-950/15 text-white"
+                        : wonCount === 1
+                          ? "border-blue-500/30 bg-blue-950/15 text-white"
+                          : "border-white/10 bg-white/[0.02] text-zinc-300"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-1.5">
+                    <span className="font-bold truncate" title={team.name}>
+                      {team.name}
+                    </span>
+                    <span
+                      className={`shrink-0 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
+                        isEliminated
+                          ? "bg-rose-900/60 text-rose-200"
+                          : isComplete
+                            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                            : wonCount === 1
+                              ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                              : "bg-zinc-800 text-zinc-400"
+                      }`}
+                    >
+                      {wonCount}/2 Qs
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-zinc-400">
+                    <span>Balance: {team.balance} pts</span>
+                    {isEliminated ? (
+                      <span className="text-rose-400 font-bold uppercase text-[9px]">Eliminated</span>
+                    ) : isRound3Excluded ? (
+                      <span className="text-zinc-400 font-semibold text-[9px] uppercase">R3 Excluded</span>
+                    ) : isComplete ? (
+                      <span className="text-emerald-400 font-bold uppercase text-[9px]">Qualified</span>
+                    ) : (
+                      <span className="text-amber-400 font-semibold text-[9px] uppercase">Eligible</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Post-Round 3 Final Qualification & Elimination Summary */}
+        {(currentRound === 3 || roundMetrics.eliminatedTeams.length > 0) && (
+          <div className="rounded-xl border border-white/10 bg-black/30 p-4 space-y-2.5">
+            <h3 className="text-xs font-black uppercase tracking-wider text-zinc-300 flex items-center justify-between">
+              <span>Qualification &amp; Elimination Summary</span>
+              <span className="text-[11px] font-mono font-normal text-zinc-400">
+                Rule: 2 Questions Required
+              </span>
+            </h3>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              <div className="p-3 rounded-lg border border-emerald-500/20 bg-emerald-950/20">
+                <div className="font-bold text-emerald-400 flex items-center gap-1.5 mb-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                  Qualified Teams ({roundMetrics.completedTeams.length})
+                </div>
+                <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                  {roundMetrics.completedTeams.length === 0 ? (
+                    <span className="text-[11px] text-zinc-500">No teams have completed 2 questions yet.</span>
+                  ) : (
+                    roundMetrics.completedTeams.map((t) => (
+                      <span
+                        key={t.id}
+                        className="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[11px] font-medium"
+                      >
+                        {t.name} (2/2)
+                      </span>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="p-3 rounded-lg border border-rose-500/20 bg-rose-950/20">
+                <div className="font-bold text-rose-400 flex items-center gap-1.5 mb-1.5">
+                  <span className="w-2 h-2 rounded-full bg-rose-400" />
+                  {currentRound === 3 ? "At Risk / Eliminated" : "Eliminated Teams"} (
+                  {currentRound === 3
+                    ? roundMetrics.activeNeedingQuestions.length + roundMetrics.eliminatedTeams.length
+                    : roundMetrics.eliminatedTeams.length}
+                  )
+                </div>
+                <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                  {currentRound === 3 && roundMetrics.activeNeedingQuestions.length > 0 && (
+                    roundMetrics.activeNeedingQuestions.map((t) => (
+                      <span
+                        key={t.id}
+                        className="px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] font-medium"
+                      >
+                        {t.name} ({winsByTeam.get(t.id) ?? 0}/2 - At Risk)
+                      </span>
+                    ))
+                  )}
+                  {roundMetrics.eliminatedTeams.map((t) => (
+                    <span
+                      key={t.id}
+                      className="px-2 py-0.5 rounded bg-rose-500/10 border border-rose-500/30 text-rose-300 text-[11px] font-medium"
+                    >
+                      {t.name} (Eliminated)
+                    </span>
+                  ))}
+                  {currentRound !== 3 && roundMetrics.eliminatedTeams.length === 0 && (
+                    <span className="text-[11px] text-zinc-500">No teams eliminated.</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
 
       {/* 2 ─ Main auction container */}
       <div className="rounded-2xl border border-white/10 bg-[#17181c] p-5 sm:p-6">
+        {/* Queue Round Filter Bar */}
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-white/10">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider mr-1">
+              Queue Filter:
+            </span>
+            <button
+              type="button"
+              onClick={() => setQueueRoundFilter("all")}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors ${
+                queueRoundFilter === "all"
+                  ? "bg-white/20 text-white"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+            >
+              All Items ({orderedSlots.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setQueueRoundFilter(1)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors ${
+                queueRoundFilter === 1
+                  ? "bg-[#fe5102] text-white"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+            >
+              Round 1 ({r1Count})
+            </button>
+            <button
+              type="button"
+              onClick={() => setQueueRoundFilter(2)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors ${
+                queueRoundFilter === 2
+                  ? "bg-[#fe5102] text-white"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+            >
+              Round 2 ({r2Count})
+            </button>
+            <button
+              type="button"
+              onClick={() => setQueueRoundFilter(3)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors ${
+                queueRoundFilter === 3
+                  ? "bg-purple-600 text-white"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+            >
+              Round 3 / Recovery ({r3Count})
+            </button>
+          </div>
+
+          <span className="text-xs text-zinc-400 font-medium">
+            Active Round: <strong className="text-white">Round {currentRound}</strong>
+          </span>
+        </div>
+
         {/* Five slot controls — one row */}
         <div className="flex flex-wrap items-center gap-2.5">
           {isLive ? (
