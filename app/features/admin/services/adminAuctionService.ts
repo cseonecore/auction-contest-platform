@@ -16,6 +16,9 @@ import { supabase } from "@/lib/supabase";
 import type {
   ServiceResult,
   OpenSlotResult,
+  BiddingResultTeam,
+  BiddingResultProblem,
+  BiddingResultMember,
 } from "@/features/admin/types/auctionAdmin";
 
 import { openSlot as adminOpenSlot } from "@/features/admin/services/auctionAdminService";
@@ -297,4 +300,206 @@ export const openSlot = async (
 ): Promise<ServiceResult<OpenSlotResult>> => adminOpenSlot(slotId, startingBid);
 
 /** Consolidated authoritative bidding results across all teams. */
-export const fetchBiddingResults = () => call<import("@/features/admin/types/auctionAdmin").BiddingResultTeam[]>("get_bidding_results");
+export const fetchBiddingResults = async (): Promise<
+  AdminActionResult<BiddingResultTeam[]>
+> => {
+  // 1. Primary path: try PostgreSQL RPC get_bidding_results
+  const res = await call<BiddingResultTeam[]>("get_bidding_results");
+
+  if (res.success && Array.isArray(res.data)) {
+    return res;
+  }
+
+  // 2. If get_bidding_results is missing in schema cache, fall back to direct table queries
+  const isMissingRpc =
+    res.error &&
+    (res.error.includes("get_bidding_results") ||
+      res.error.includes("schema cache") ||
+      res.error.includes("PGRST202"));
+
+  if (isMissingRpc) {
+    try {
+      const fallbackData = await fetchBiddingResultsFallback();
+      return { success: true, data: fallbackData };
+    } catch (err: unknown) {
+      console.warn("fetchBiddingResults fallback query failed:", err);
+      return {
+        success: false,
+        error:
+          "Database function 'public.get_bidding_results' is missing in Supabase. Please apply migration 021/023 (docs/production-deploy-021-023.sql) in your Supabase SQL Editor.",
+      };
+    }
+  }
+
+  return res;
+};
+
+/** Fallback builder that aggregates bidding results directly from database tables if RPC is missing. */
+async function fetchBiddingResultsFallback(): Promise<BiddingResultTeam[]> {
+  // 1. Fetch solving timer setting
+  let baseDevSeconds = 120;
+  try {
+    const { data: settingRow } = await supabase
+      .from("settings")
+      .select("value")
+      .eq("key", "solving_timer_seconds")
+      .maybeSingle();
+
+    if (settingRow?.value != null) {
+      const val = Number(settingRow.value);
+      if (!isNaN(val) && val > 0) baseDevSeconds = val;
+    }
+  } catch {
+    // Keep default 120
+  }
+
+  // 2. Fetch teams, members, wallets, topics, sold slots, bonus_transactions, eliminations in parallel
+  const [
+    teamsRes,
+    membersRes,
+    walletsRes,
+    topicsRes,
+    slotsRes,
+    bonusesRes,
+    elimsRes,
+  ] = await Promise.all([
+    supabase
+      .from("teams")
+      .select("id, name, captain_id, created_at")
+      .order("name", { ascending: true }),
+    supabase
+      .from("members")
+      .select("id, team_id, name, email, created_at")
+      .order("created_at", { ascending: true }),
+    supabase.from("wallets").select("team_id, balance"),
+    supabase.from("topics").select("id, title, level"),
+    supabase
+      .from("slots")
+      .select("id, question_number, round, current_bid, status, sold_at, winner_team_id, topic_id")
+      .eq("status", "sold"),
+    supabase.from("bonus_transactions").select("slot_id, team_id, bonus_seconds"),
+    supabase
+      .from("team_eliminations")
+      .select("team_id, reason, restored_at, eliminated_at")
+      .is("restored_at", null),
+  ]);
+
+  if (teamsRes.error) {
+    throw new Error(teamsRes.error.message || "Failed to load teams");
+  }
+
+  const teams = teamsRes.data || [];
+  const members = membersRes.data || [];
+  const wallets = walletsRes.data || [];
+  const topics = topicsRes.data || [];
+  const soldSlots = slotsRes.data || [];
+  const bonuses = bonusesRes.data || [];
+  const elims = elimsRes.data || [];
+
+  // Index maps
+  const topicsMap = new Map<string, { title: string; level: string }>();
+  topics.forEach((tp) => topicsMap.set(tp.id, { title: tp.title, level: tp.level }));
+
+  const membersByTeam = new Map<string, typeof members>();
+  members.forEach((m) => {
+    if (!m.team_id) return;
+    const list = membersByTeam.get(m.team_id) || [];
+    list.push(m);
+    membersByTeam.set(m.team_id, list);
+  });
+
+  const walletByTeam = new Map<string, number>();
+  wallets.forEach((w) => {
+    if (w.team_id) walletByTeam.set(w.team_id, Number(w.balance) || 0);
+  });
+
+  const bonusesBySlotAndTeam = new Map<string, number>();
+  bonuses.forEach((b) => {
+    const key = `${b.slot_id}_${b.team_id}`;
+    bonusesBySlotAndTeam.set(
+      key,
+      (bonusesBySlotAndTeam.get(key) || 0) + (Number(b.bonus_seconds) || 0)
+    );
+  });
+
+  const slotsByTeam = new Map<string, typeof soldSlots>();
+  soldSlots.forEach((s) => {
+    if (!s.winner_team_id) return;
+    const list = slotsByTeam.get(s.winner_team_id) || [];
+    list.push(s);
+    slotsByTeam.set(s.winner_team_id, list);
+  });
+
+  const activeElimByTeam = new Map<string, string>();
+  elims.forEach((e) => {
+    if (e.team_id) activeElimByTeam.set(e.team_id, e.reason || "Eliminated");
+  });
+
+  return teams.map((t): BiddingResultTeam => {
+    const teamMembers = membersByTeam.get(t.id) || [];
+    const captainMember =
+      teamMembers.find((m) => m.id === t.captain_id) || teamMembers[0];
+
+    const captainName = captainMember?.name || "—";
+    const captainEmail = captainMember?.email || "";
+    const captainUsn = captainEmail.split("@")[0]?.toUpperCase() || "—";
+
+    const membersList: BiddingResultMember[] = teamMembers.map((m) => ({
+      name: m.name || "—",
+      usn: (m.email || "").split("@")[0]?.toUpperCase() || "—",
+      is_captain: m.id === t.captain_id,
+    }));
+
+    const wonSlots = slotsByTeam.get(t.id) || [];
+    let totalSpent = 0;
+    let totalBonusDevSeconds = 0;
+
+    const problemsList: BiddingResultProblem[] = wonSlots.map((s) => {
+      const topic = topicsMap.get(s.topic_id);
+      const winningBid = Number(s.current_bid) || 0;
+      totalSpent += winningBid;
+
+      const bonusSecs = bonusesBySlotAndTeam.get(`${s.id}_${t.id}`) || 0;
+      totalBonusDevSeconds += bonusSecs;
+
+      return {
+        slot_id: s.id,
+        question_number: s.question_number,
+        round: s.round,
+        difficulty: topic?.level || "easy",
+        topic_title: topic?.title || "Problem Statement",
+        winning_bid: winningBid,
+        status: s.status,
+        sold_at: s.sold_at,
+        base_dev_seconds: baseDevSeconds,
+        bonus_dev_seconds: bonusSecs,
+        total_dev_seconds: baseDevSeconds + bonusSecs,
+      };
+    });
+
+    const wonCount = problemsList.length;
+    const totalBaseDevSeconds = baseDevSeconds * wonCount;
+    const totalDevSeconds = totalBaseDevSeconds + totalBonusDevSeconds;
+    const isEliminated = activeElimByTeam.has(t.id);
+
+    return {
+      team_id: t.id,
+      team_name: t.name,
+      captain_name: captainName,
+      captain_usn: captainUsn,
+      members: membersList,
+      member_count: teamMembers.length,
+      registered_at: t.created_at,
+      balance: walletByTeam.get(t.id) ?? 100,
+      total_spent: totalSpent,
+      problems: problemsList,
+      won_count: wonCount,
+      total_base_dev_seconds: totalBaseDevSeconds,
+      total_bonus_dev_seconds: totalBonusDevSeconds,
+      total_dev_seconds: totalDevSeconds,
+      qualified: wonCount >= 2,
+      eliminated: isEliminated,
+      elimination_reason: activeElimByTeam.get(t.id) ?? null,
+    };
+  });
+}
