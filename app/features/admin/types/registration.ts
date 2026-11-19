@@ -36,6 +36,19 @@ export interface RegistrationStatsData {
   availableCapacity: number;
   capacityPercentage: number;
   isRegistrationOpen: boolean;
+  deletedTeamsCount: number;
+}
+
+export interface DeletedTeamDetail {
+  id: string;
+  name: string;
+  members_count?: number;
+}
+
+export interface DeleteTeamsResult {
+  success: boolean;
+  deleted_count: number;
+  deleted_teams: DeletedTeamDetail[];
 }
 
 export interface RegistrationControlSettings {

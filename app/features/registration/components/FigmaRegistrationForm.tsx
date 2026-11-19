@@ -19,14 +19,17 @@ export const FigmaRegistrationForm: React.FC = () => {
   // Member 2
   const [m2Name, setM2Name] = useState("");
   const [m2Usn, setM2Usn] = useState("");
+  const [m2Phone, setM2Phone] = useState("");
 
   // Member 3
   const [m3Name, setM3Name] = useState("");
   const [m3Usn, setM3Usn] = useState("");
+  const [m3Phone, setM3Phone] = useState("");
 
   // Member 4
   const [m4Name, setM4Name] = useState("");
   const [m4Usn, setM4Usn] = useState("");
+  const [m4Phone, setM4Phone] = useState("");
 
   // Form State
   const [loading, setLoading] = useState(false);
@@ -123,7 +126,14 @@ export const FigmaRegistrationForm: React.FC = () => {
       return;
     }
 
+    const cleanM2Phone = m2Phone.replace(/[\s-]/g, "");
+    if (!cleanM2Phone || cleanM2Phone.length < 10) {
+      setError("Please enter a valid 10-digit Phone Number for Member 2.");
+      return;
+    }
+
     // 4. Member 3 validation (if team size >= 3)
+    let cleanM3Phone = "";
     if (teamSize >= 3) {
       if (!m3Name.trim() || !m3Usn.trim()) {
         setError("Please fill in Member 3 Name and USN.");
@@ -133,9 +143,15 @@ export const FigmaRegistrationForm: React.FC = () => {
         setError("Invalid Member 3 USN! Must follow pattern 4MT2XBBMMM (e.g., 4MT24CS003).");
         return;
       }
+      cleanM3Phone = m3Phone.replace(/[\s-]/g, "");
+      if (!cleanM3Phone || cleanM3Phone.length < 10) {
+        setError("Please enter a valid 10-digit Phone Number for Member 3.");
+        return;
+      }
     }
 
     // 5. Member 4 validation (if team size == 4)
+    let cleanM4Phone = "";
     if (teamSize >= 4) {
       if (!m4Name.trim() || !m4Usn.trim()) {
         setError("Please fill in Member 4 Name and USN.");
@@ -143,6 +159,11 @@ export const FigmaRegistrationForm: React.FC = () => {
       }
       if (!USN_PATTERN.test(m4Usn.trim())) {
         setError("Invalid Member 4 USN! Must follow pattern 4MT2XBBMMM (e.g., 4MT24CS004).");
+        return;
+      }
+      cleanM4Phone = m4Phone.replace(/[\s-]/g, "");
+      if (!cleanM4Phone || cleanM4Phone.length < 10) {
+        setError("Please enter a valid 10-digit Phone Number for Member 4.");
         return;
       }
     }
@@ -161,14 +182,14 @@ export const FigmaRegistrationForm: React.FC = () => {
     setLoading(true);
 
     try {
-      const members = [
-        { name: m2Name.trim(), usn: m2Usn.trim().toUpperCase() },
+      const members: Array<{ name: string; usn: string; phone: string }> = [
+        { name: m2Name.trim(), usn: m2Usn.trim().toUpperCase(), phone: cleanM2Phone },
       ];
       if (teamSize >= 3) {
-        members.push({ name: m3Name.trim(), usn: m3Usn.trim().toUpperCase() });
+        members.push({ name: m3Name.trim(), usn: m3Usn.trim().toUpperCase(), phone: cleanM3Phone });
       }
       if (teamSize >= 4) {
-        members.push({ name: m4Name.trim(), usn: m4Usn.trim().toUpperCase() });
+        members.push({ name: m4Name.trim(), usn: m4Usn.trim().toUpperCase(), phone: cleanM4Phone });
       }
 
       const res = await fetch("/api/register", {
@@ -242,8 +263,9 @@ export const FigmaRegistrationForm: React.FC = () => {
           Thank You For Registering
         </h1>
         <p className="text-xs sm:text-sm text-slate-500 font-normal mt-2.5 max-w-md mx-auto">
-          Your Team ID and Password will be sent shortly to your captain&apos;s{" "}
-          <span className="font-semibold text-slate-800">{successEmail}</span>
+          Your team is registered! You can log in directly using your{" "}
+          <span className="font-semibold text-slate-800">Team Name</span> and{" "}
+          <span className="font-semibold text-slate-800">Captain USN</span>.
         </p>
 
         <div className="mt-8">
@@ -275,7 +297,7 @@ export const FigmaRegistrationForm: React.FC = () => {
         <div className="mt-8">
           <Link
             href="/login"
-            className="bg-[#ff5500] hover:bg-[#e64d00] text-white font-semibold text-xs sm:text-sm px-8 py-2.5 rounded-full shadow-sm transition-all inline-block"
+            className="bg-[#fe5102] hover:bg-[#e54700] text-white font-semibold text-xs sm:text-sm px-8 py-2.5 rounded-full shadow-xs transition-all inline-block"
           >
             Back to Log in
           </Link>
@@ -457,6 +479,14 @@ export const FigmaRegistrationForm: React.FC = () => {
                   onChange={(e) => setM2Usn(e.target.value.toUpperCase())}
                   className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
                 />
+                <input
+                  type="tel"
+                  required
+                  placeholder="Phone Number"
+                  value={m2Phone}
+                  onChange={(e) => setM2Phone(e.target.value)}
+                  className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
+                />
               </div>
             </div>
 
@@ -482,6 +512,14 @@ export const FigmaRegistrationForm: React.FC = () => {
                     value={m3Usn}
                     maxLength={10}
                     onChange={(e) => setM3Usn(e.target.value.toUpperCase())}
+                    className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
+                  />
+                  <input
+                    type="tel"
+                    required
+                    placeholder="Phone Number"
+                    value={m3Phone}
+                    onChange={(e) => setM3Phone(e.target.value)}
                     className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
                   />
                 </div>
@@ -510,6 +548,14 @@ export const FigmaRegistrationForm: React.FC = () => {
                     value={m4Usn}
                     maxLength={10}
                     onChange={(e) => setM4Usn(e.target.value.toUpperCase())}
+                    className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
+                  />
+                  <input
+                    type="tel"
+                    required
+                    placeholder="Phone Number"
+                    value={m4Phone}
+                    onChange={(e) => setM4Phone(e.target.value)}
                     className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
                   />
                 </div>

@@ -10,6 +10,7 @@
  */
 
 import { supabase } from "@/lib/supabase";
+import { calculateRuleBook98Bonus } from "@/features/submission/utils/submissionRules";
 
 export interface TeamScore {
   teamId: string;
@@ -20,6 +21,8 @@ export interface TeamScore {
   remainingBudget: number;
   /** Projected bonus points for the unspent budget (Rule Book §9.8). */
   projectedBonusPoints: number;
+  /** Total contest score: presentation score + unspent budget bonus. */
+  totalScore: number;
   solvedQuestions: number;
 }
 
@@ -29,16 +32,29 @@ export interface ScoringSnapshot {
 }
 
 export async function fetchScoringSnapshot(): Promise<ScoringSnapshot> {
-  const [{ data: teams }, { data: evaluations }, { data: solves }, { data: wallets }] =
-    await Promise.all([
-      supabase.from("teams").select("id, name"),
-      supabase.from("evaluations").select("score, status, submission:submissions(team_id)"),
-      supabase.from("challenge_solves").select("team_id"),
-      supabase.from("wallets").select("team_id, balance"),
-    ]);
+  const [teamsRes, evalsRes, solvesRes, walletsRes] = await Promise.all([
+    supabase.from("teams").select("id, name"),
+    supabase.from("evaluations").select("score, status, submission:submissions(team_id)"),
+    supabase.from("challenge_solves").select("team_id"),
+    supabase.from("wallets").select("team_id, balance"),
+  ]);
+
+  if (teamsRes.error) {
+    throw new Error(`Failed to load teams: ${teamsRes.error.message}`);
+  }
+  if (evalsRes.error) {
+    throw new Error(`Failed to load evaluations: ${evalsRes.error.message}`);
+  }
+  if (solvesRes.error) {
+    throw new Error(`Failed to load challenge solves: ${solvesRes.error.message}`);
+  }
+  if (walletsRes.error) {
+    throw new Error(`Failed to load team wallets: ${walletsRes.error.message}`);
+  }
 
   const scoreByTeam = new Map<string, number>();
-  (evaluations ?? []).forEach((evaluation) => {
+  (evalsRes.data ?? []).forEach((evaluation) => {
+    // Only completed evaluations contribute to competition scores
     if (evaluation.status !== "completed") return;
     const submission = evaluation.submission as unknown as
       | { team_id: string }
@@ -50,24 +66,27 @@ export async function fetchScoringSnapshot(): Promise<ScoringSnapshot> {
   });
 
   const solvesByTeam = new Map<string, number>();
-  (solves ?? []).forEach((solve) => {
+  (solvesRes.data ?? []).forEach((solve) => {
     solvesByTeam.set(solve.team_id, (solvesByTeam.get(solve.team_id) ?? 0) + 1);
   });
 
   const balanceByTeam = new Map<string, number>();
-  (wallets ?? []).forEach((wallet) => {
+  (walletsRes.data ?? []).forEach((wallet) => {
     balanceByTeam.set(wallet.team_id, Number(wallet.balance ?? 0));
   });
 
   return {
-    teams: (teams ?? []).map((team) => {
+    teams: (teamsRes.data ?? []).map((team) => {
+      const score = scoreByTeam.get(team.id) ?? 0;
       const remainingBudget = balanceByTeam.get(team.id) ?? 0;
+      const projectedBonusPoints = calculateRuleBook98Bonus(remainingBudget);
       return {
         teamId: team.id,
         teamName: team.name,
-        score: scoreByTeam.get(team.id) ?? 0,
+        score,
         remainingBudget,
-        projectedBonusPoints: Math.floor(Math.max(0, remainingBudget) / 3),
+        projectedBonusPoints,
+        totalScore: score + projectedBonusPoints,
         solvedQuestions: solvesByTeam.get(team.id) ?? 0,
       };
     }),

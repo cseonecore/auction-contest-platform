@@ -10,6 +10,7 @@ interface SubmissionRow {
   team_id: string;
   slot_id: string;
   repository_url: string | null;
+  live_url: string | null;
   status: string;
   submitted_at: string;
   team_name?: string;
@@ -40,6 +41,7 @@ export function BonusApproval({ pending, onApprove }: BonusApprovalProps) {
   >([]);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [bonusChecks, setBonusChecks] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -50,7 +52,7 @@ export function BonusApproval({ pending, onApprove }: BonusApprovalProps) {
 
       const { data } = await supabase
         .from("submissions")
-        .select("id, team_id, slot_id, repository_url, status, submitted_at, team:teams(name)")
+        .select("id, team_id, slot_id, repository_url, live_url, status, submitted_at, team:teams(name)")
         .order("submitted_at", { ascending: false })
         .limit(25);
 
@@ -67,6 +69,7 @@ export function BonusApproval({ pending, onApprove }: BonusApprovalProps) {
           team_id: row.team_id as string,
           slot_id: row.slot_id as string,
           repository_url: row.repository_url as string | null,
+          live_url: (row as any).live_url as string | null,
           status: row.status as string,
           submitted_at: row.submitted_at as string,
           team_name: team?.name ?? "Unknown team",
@@ -144,7 +147,18 @@ export function BonusApproval({ pending, onApprove }: BonusApprovalProps) {
                     rel="noopener noreferrer"
                     className="block text-[11px] font-mono text-[#fe5102] truncate hover:underline"
                   >
-                    {submission.repository_url}
+                    Repo: {submission.repository_url}
+                  </a>
+                )}
+
+                {submission.live_url && (
+                  <a
+                    href={submission.live_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-[11px] font-mono text-emerald-400 truncate hover:underline"
+                  >
+                    Live: {submission.live_url}
                   </a>
                 )}
 
@@ -169,6 +183,21 @@ export function BonusApproval({ pending, onApprove }: BonusApprovalProps) {
                     className="flex-1 min-w-[150px] bg-zinc-800 border border-zinc-700 text-[11px] rounded-lg px-2.5 py-1.5 text-zinc-200 placeholder:text-zinc-600"
                     aria-label={`Notes for ${submission.team_name}`}
                   />
+                  <label className="flex items-center gap-1.5 text-[11px] text-zinc-300 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(bonusChecks[submission.id])}
+                      onChange={(e) =>
+                        setBonusChecks((prev) => ({
+                          ...prev,
+                          [submission.id]: e.target.checked,
+                        }))
+                      }
+                      disabled={alreadyAwarded || !!pending}
+                      className="rounded border-zinc-700 bg-zinc-800 text-emerald-500 focus:ring-0"
+                    />
+                    <span>Bonus time</span>
+                  </label>
                   <button
                     type="button"
                     onClick={() =>
@@ -176,13 +205,13 @@ export function BonusApproval({ pending, onApprove }: BonusApprovalProps) {
                         submission.id,
                         scores[submission.id] ?? 0,
                         notes[submission.id] ?? "",
-                        !alreadyAwarded
+                        !alreadyAwarded && Boolean(bonusChecks[submission.id])
                       )
                     }
-                    disabled={!!pending || alreadyAwarded}
+                    disabled={!!pending}
                     className={`${btn} bg-emerald-600 hover:bg-emerald-500 text-white`}
                   >
-                    {alreadyAwarded ? "Bonus awarded" : "Approve + bonus"}
+                    {!alreadyAwarded && bonusChecks[submission.id] ? "Approve + bonus" : "Approve"}
                   </button>
                 </div>
 

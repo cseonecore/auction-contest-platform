@@ -1,4 +1,5 @@
-import { createClient } from "@supabase/supabase-js";
+import "server-only";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 /**
  * Server client with the service-role key.
@@ -19,15 +20,15 @@ import { createClient } from "@supabase/supabase-js";
  * SECURITY DEFINER engine functions in PostgreSQL.
  * ─────────────────────────────────────────────────────────────────
  */
-export function getServiceDb() {
-  const url =
-    process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    "https://qqbuauryvhgssmmxiiuh.supabase.co";
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    "sb_publishable_nRvQFOW3SK82rWBY6VsDGw_yw5-3Itj";
+export function getServiceDb(): SupabaseClient {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) {
+    throw new Error(
+      "Missing server configuration: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for service-role operations."
+    );
+  }
 
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },

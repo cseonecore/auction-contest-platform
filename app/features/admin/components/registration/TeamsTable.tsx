@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import {
   RegisteredTeamWithRelations,
   RegistrationLockFilter,
@@ -18,6 +18,19 @@ interface TeamsTableProps {
   onToggleLock?: (teamId: string, currentLocked: boolean) => Promise<void>;
   updatingLockTeamId?: string | null;
   isGlobalUpdating?: boolean;
+
+  // Selection & Bulk Action Props (Phase 5)
+  selectedTeamIds?: string[];
+  onToggleSelectTeam?: (teamId: string) => void;
+  onSelectAll?: (teamIds: string[]) => void;
+  onClearSelection?: () => void;
+  onBulkLock?: (locked: boolean) => Promise<void>;
+  onRequestDelete?: () => void;
+  isBulkUpdating?: boolean;
+
+  // Excel Export Props
+  onExport?: () => void;
+  isExporting?: boolean;
 }
 
 export function TeamsTable({
@@ -32,8 +45,25 @@ export function TeamsTable({
   onToggleLock,
   updatingLockTeamId,
   isGlobalUpdating,
+  selectedTeamIds = [],
+  onToggleSelectTeam,
+  onSelectAll,
+  onClearSelection,
+  onBulkLock,
+  onRequestDelete,
+  isBulkUpdating = false,
+  onExport,
+  isExporting = false,
 }: TeamsTableProps) {
-  const isAnyUpdating = (updatingLockTeamId !== null && updatingLockTeamId !== undefined) || !!isGlobalUpdating;
+  // Pagination states (default: 25 items per page)
+  const [pageSize, setPageSize] = useState<number>(25);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+
+  const isAnyUpdating =
+    (updatingLockTeamId !== null && updatingLockTeamId !== undefined) ||
+    !!isGlobalUpdating ||
+    isBulkUpdating;
+
   // Filtered and searched teams
   const filteredTeams = useMemo(() => {
     return teams.filter((team) => {
@@ -59,6 +89,24 @@ export function TeamsTable({
     });
   }, [teams, lockFilter, searchQuery]);
 
+  // Reset to page 1 whenever filters or search query changes without cascading renders
+  const filterKey = `${searchQuery}::${lockFilter}::${pageSize}`;
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
+  if (filterKey !== prevFilterKey) {
+    setPrevFilterKey(filterKey);
+    setCurrentPage(1);
+  }
+
+  // Pagination calculations
+  const totalPages = Math.max(1, Math.ceil(filteredTeams.length / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+
+  const paginatedTeams = useMemo(() => {
+    const startIdx = (safeCurrentPage - 1) * pageSize;
+    return filteredTeams.slice(startIdx, startIdx + pageSize);
+  }, [filteredTeams, safeCurrentPage, pageSize]);
+
+  // Counts for filter pills
   const counts = useMemo(() => {
     return {
       all: teams.length,
@@ -66,6 +114,36 @@ export function TeamsTable({
       locked: teams.filter((t) => t.locked).length,
     };
   }, [teams]);
+
+  // Selection analysis for selected teams
+  const selectedTeamsList = useMemo(() => {
+    const idSet = new Set(selectedTeamIds);
+    return teams.filter((t) => idSet.has(t.id));
+  }, [teams, selectedTeamIds]);
+
+  const selectedCount = selectedTeamIds.length;
+  const unlockedSelectedCount = selectedTeamsList.filter((t) => !t.locked).length;
+  const allSelectedAreLocked = selectedCount > 0 && unlockedSelectedCount === 0;
+
+  // Check if all paginated teams on current page are selected
+  const paginatedIds = useMemo(() => paginatedTeams.map((t) => t.id), [paginatedTeams]);
+  const isAllPaginatedSelected =
+    paginatedIds.length > 0 && paginatedIds.every((id) => selectedTeamIds.includes(id));
+  const isSomePaginatedSelected =
+    paginatedIds.some((id) => selectedTeamIds.includes(id)) && !isAllPaginatedSelected;
+
+  const handleToggleSelectAllPage = () => {
+    if (!onSelectAll) return;
+    if (isAllPaginatedSelected) {
+      // Deselect page items
+      const newSelected = selectedTeamIds.filter((id) => !paginatedIds.includes(id));
+      onSelectAll(newSelected);
+    } else {
+      // Add page items to selection
+      const newSelectedSet = new Set([...selectedTeamIds, ...paginatedIds]);
+      onSelectAll(Array.from(newSelectedSet));
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -104,8 +182,8 @@ export function TeamsTable({
           )}
         </div>
 
-        {/* Filter Pills & Refresh */}
-        <div className="flex items-center gap-2">
+        {/* Filter Pills, Export Button & Refresh */}
+        <div className="flex items-center flex-wrap gap-2">
           <div className="inline-flex rounded-lg border border-zinc-200 dark:border-zinc-800 p-0.5 bg-zinc-100 dark:bg-zinc-800 text-xs">
             <button
               type="button"
@@ -142,6 +220,41 @@ export function TeamsTable({
             </button>
           </div>
 
+          {/* Download Team Details (.xlsx) Button */}
+          {onExport && (
+            <button
+              type="button"
+              onClick={onExport}
+              disabled={isExporting || isLoading || teams.length === 0}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg text-emerald-800 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-xs"
+              title="Download all registered teams and members as an Excel file (.xlsx)"
+            >
+              {isExporting ? (
+                <>
+                  <span className="w-3.5 h-3.5 border-2 border-emerald-600 dark:border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                  <span>Exporting...</span>
+                </>
+              ) : (
+                <>
+                  <svg
+                    className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                    />
+                  </svg>
+                  <span>Download Team Details (.xlsx)</span>
+                </>
+              )}
+            </button>
+          )}
+
           <button
             type="button"
             onClick={onRefresh}
@@ -166,13 +279,143 @@ export function TeamsTable({
         </div>
       </div>
 
+      {/* Selected Teams Bulk Actions Bar (Phase 5) */}
+      {selectedCount > 0 && (
+        <div className="p-3.5 rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/70 dark:bg-blue-950/30 flex flex-col md:flex-row md:items-center md:justify-between gap-3 animate-in fade-in slide-in-from-top-1 duration-150">
+          <div className="flex items-center flex-wrap gap-2.5">
+            <span className="font-bold text-zinc-900 dark:text-zinc-100 text-xs">
+              {selectedCount} {selectedCount === 1 ? 'team' : 'teams'} selected
+            </span>
+
+            {/* Lock Eligibility Status Pill */}
+            {allSelectedAreLocked ? (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                All {selectedCount} locked (Eligible for deletion)
+              </span>
+            ) : (
+              <span
+                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800"
+                title="Only locked teams can be deleted. Use 'Lock Selected' first."
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                {unlockedSelectedCount} unlocked — Unlocked teams cannot be deleted. Lock them first.
+              </span>
+            )}
+
+            {onClearSelection && (
+              <button
+                type="button"
+                onClick={onClearSelection}
+                disabled={isAnyUpdating}
+                className="text-[11px] text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 underline underline-offset-2 ml-1"
+              >
+                Deselect all
+              </button>
+            )}
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-center flex-wrap gap-2">
+            {/* Lock Selected Button */}
+            {onBulkLock && (
+              <button
+                type="button"
+                disabled={isAnyUpdating || unlockedSelectedCount === 0}
+                onClick={() => onBulkLock(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-600 hover:bg-amber-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-xs"
+                title={
+                  unlockedSelectedCount === 0
+                    ? 'All selected teams are already locked'
+                    : `Lock ${unlockedSelectedCount} unlocked team(s)`
+                }
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"
+                  />
+                </svg>
+                <span>Lock Selected</span>
+              </button>
+            )}
+
+            {/* Unlock Selected Button */}
+            {onBulkLock && (
+              <button
+                type="button"
+                disabled={isAnyUpdating || selectedCount - unlockedSelectedCount === 0}
+                onClick={() => onBulkLock(false)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Unlock selected teams"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"
+                  />
+                </svg>
+                <span>Unlock Selected</span>
+              </button>
+            )}
+
+            {/* Delete Selected Teams Button */}
+            {onRequestDelete && (
+              <button
+                type="button"
+                disabled={!allSelectedAreLocked || isAnyUpdating}
+                onClick={onRequestDelete}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-colors shadow-xs ${
+                  allSelectedAreLocked && !isAnyUpdating
+                    ? 'bg-rose-600 text-white hover:bg-rose-700 cursor-pointer'
+                    : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 cursor-not-allowed border border-zinc-300 dark:border-zinc-700'
+                }`}
+                title={
+                  !allSelectedAreLocked
+                    ? 'Deletion disabled: All selected teams must be locked first. Use "Lock Selected" above.'
+                    : `Permanently delete ${selectedCount} locked team(s)`
+                }
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                  />
+                </svg>
+                <span>Delete Selected Teams ({selectedCount})</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Table Container */}
       <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden shadow-xs">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-zinc-50 dark:bg-zinc-800/60 border-b border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 font-semibold uppercase tracking-wider text-[10px]">
               <tr>
-                <th className="px-4 py-3">Team Name</th>
+                {/* Checkbox column */}
+                <th className="w-10 px-4 py-3 text-center">
+                  <input
+                    type="checkbox"
+                    checked={isAllPaginatedSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = isSomePaginatedSelected;
+                    }}
+                    onChange={handleToggleSelectAllPage}
+                    disabled={paginatedTeams.length === 0 || isAnyUpdating}
+                    className="w-3.5 h-3.5 rounded border-zinc-300 dark:border-zinc-700 text-blue-600 focus:ring-blue-500 cursor-pointer disabled:opacity-50"
+                    title="Select all teams on this page"
+                  />
+                </th>
+                <th className="px-4 py-3">Team Name &amp; ID</th>
                 <th className="px-4 py-3">Captain Name</th>
                 <th className="px-4 py-3">Captain USN</th>
                 <th className="px-4 py-3 text-center">Members</th>
@@ -182,8 +425,9 @@ export function TeamsTable({
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-              {filteredTeams.length > 0 ? (
-                filteredTeams.map((team) => {
+              {paginatedTeams.length > 0 ? (
+                paginatedTeams.map((team) => {
+                  const isSelected = selectedTeamIds.includes(team.id);
                   const regDate = new Date(team.created_at).toLocaleDateString('en-US', {
                     month: 'short',
                     day: 'numeric',
@@ -194,12 +438,35 @@ export function TeamsTable({
                     <tr
                       key={team.id}
                       onClick={() => onSelectTeam(team)}
-                      className="hover:bg-zinc-50/70 dark:hover:bg-zinc-800/40 cursor-pointer transition-colors"
+                      className={`hover:bg-zinc-50/80 dark:hover:bg-zinc-800/50 cursor-pointer transition-colors ${
+                        isSelected
+                          ? 'bg-blue-50/40 dark:bg-blue-950/20'
+                          : ''
+                      }`}
                     >
-                      {/* Team Name */}
-                      <td className="px-4 py-3 font-semibold text-zinc-900 dark:text-zinc-100">
-                        <div className="flex items-center gap-1.5">
-                          <span>{team.name}</span>
+                      {/* Checkbox */}
+                      <td
+                        className="w-10 px-4 py-3 text-center"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => onToggleSelectTeam && onToggleSelectTeam(team.id)}
+                          disabled={isAnyUpdating}
+                          className="w-3.5 h-3.5 rounded border-zinc-300 dark:border-zinc-700 text-blue-600 focus:ring-blue-500 cursor-pointer disabled:opacity-50"
+                        />
+                      </td>
+
+                      {/* Team Name & ID */}
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+                            {team.name}
+                          </span>
+                          <span className="font-mono text-[10px] text-zinc-400">
+                            ID: {team.id.substring(0, 8)}...
+                          </span>
                         </div>
                       </td>
 
@@ -259,7 +526,7 @@ export function TeamsTable({
                             const buttonTitle = isGlobalUpdating
                               ? 'Global update in progress'
                               : isAnyUpdating && !isThisTeamUpdating
-                              ? 'Another team update in progress'
+                              ? 'Update in progress'
                               : team.locked
                               ? 'Unlock team'
                               : 'Lock team';
@@ -336,7 +603,7 @@ export function TeamsTable({
                 })
               ) : (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-zinc-500 dark:text-zinc-400">
+                  <td colSpan={8} className="px-4 py-12 text-center text-zinc-500 dark:text-zinc-400">
                     {teams.length === 0 ? (
                       <div className="space-y-1">
                         <p className="font-semibold text-zinc-700 dark:text-zinc-300">
@@ -362,6 +629,69 @@ export function TeamsTable({
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Bar */}
+        {filteredTeams.length > 0 && (
+          <div className="px-4 py-3 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-zinc-600 dark:text-zinc-400">
+            {/* Range info */}
+            <div>
+              Showing{' '}
+              <strong className="text-zinc-900 dark:text-zinc-100">
+                {Math.min(filteredTeams.length, (safeCurrentPage - 1) * pageSize + 1)}
+              </strong>{' '}
+              to{' '}
+              <strong className="text-zinc-900 dark:text-zinc-100">
+                {Math.min(filteredTeams.length, safeCurrentPage * pageSize)}
+              </strong>{' '}
+              of{' '}
+              <strong className="text-zinc-900 dark:text-zinc-100">
+                {filteredTeams.length}
+              </strong>{' '}
+              teams
+            </div>
+
+            {/* Page Size & Page Navigation */}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px]">Rows per page:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  className="px-2 py-1 text-xs rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                </select>
+              </div>
+
+              {/* Navigation buttons */}
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  disabled={safeCurrentPage <= 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  className="px-2.5 py-1 text-xs rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  &larr; Prev
+                </button>
+
+                <span className="px-2 font-mono text-[11px] font-medium text-zinc-700 dark:text-zinc-300">
+                  {safeCurrentPage} / {totalPages}
+                </span>
+
+                <button
+                  type="button"
+                  disabled={safeCurrentPage >= totalPages}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  className="px-2.5 py-1 text-xs rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next &rarr;
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

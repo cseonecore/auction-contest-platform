@@ -57,11 +57,13 @@ export async function POST(request: Request) {
     const db = getDbClient();
 
     // 1. Strict Query: Find Team in Supabase (case-insensitive)
-    let { data: team, error: teamErr } = await db
+    const { data: initialTeam, error: teamErr } = await db
       .from("teams")
       .select("id, name, captain_id, locked, created_at")
       .ilike("name", cleanTeamName)
       .maybeSingle();
+
+    let team = initialTeam;
 
     // If not found, try without spaces in case user typed "Code Ninjas" for "CodeNinjas"
     if (!team) {

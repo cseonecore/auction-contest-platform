@@ -95,22 +95,25 @@ export default function AdminDashboardPage() {
           </Link>
 
           {/* Submissions & Evaluation */}
-          <div className="p-6 rounded-2xl border border-white/5 bg-[#16171b]/50 opacity-60">
+          <Link
+            href="/admin/submissions"
+            className="p-6 rounded-2xl border border-white/10 bg-[#16171b] hover:border-[#fe5102]/60 hover:bg-[#1c1d22] transition-all group shadow-lg"
+          >
             <div className="flex items-center justify-between mb-4">
-              <div className="w-10 h-10 rounded-xl bg-white/5 text-slate-500 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-xl bg-[#fe5102]/15 text-[#fe5102] flex items-center justify-center">
                 <Cpu className="w-5 h-5" />
               </div>
-              <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-full bg-white/5 text-slate-400">
-                Upcoming
+              <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-500/30">
+                Active
               </span>
             </div>
-            <h2 className="text-lg font-bold text-slate-300">
+            <h2 className="text-lg font-bold text-white group-hover:text-[#fe5102] transition-colors">
               Submissions &amp; Eval
             </h2>
-            <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
-              Track code repositories, monitor AI grading progress, and requeue failed evaluations.
+            <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+              Inspect repositories, evaluate live demos, award scores, and approve bonus time.
             </p>
-          </div>
+          </Link>
 
           {/* Bidding Results & Allocations */}
           <Link

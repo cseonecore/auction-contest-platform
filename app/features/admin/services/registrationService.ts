@@ -7,6 +7,7 @@ import {
   RegistrationStatsData,
   RegistrationControlSettings,
   ServiceResult,
+  DeleteTeamsResult,
 } from '../types/registration';
 
 export const DEFAULT_MAX_TEAMS = 60;
@@ -59,18 +60,24 @@ export function parseCaptainMetadata(college?: string | null): {
 
   // Match "Sem {digit/text}"
   const semMatch = raw.match(/Sem\s*([0-9A-Za-z]+)/i);
-  // Match "Ph: {numbers and plus/dashes}"
-  const phoneMatch = raw.match(/Ph:\s*([+0-9\s-]+)/i);
+  // Match "Ph: {numbers}", "Phone: ...", "Mob: ...", or fallback 10-digit Indian mobile number
+  const prefixMatch = raw.match(/(?:Ph(?:one)?|Mob(?:ile)?|Contact):\s*([+0-9\s-]+)/i);
+  const barePhoneMatch = !prefixMatch ? raw.match(/(?:(?:\+91|0)[\s-]?)?[6-9]\d{9}/) : null;
 
   const semester = semMatch ? semMatch[1].trim() : null;
-  const phone = phoneMatch ? phoneMatch[1].replace(/[()]/g, '').trim() : null;
+  let phone: string | null = null;
+  if (prefixMatch) {
+    phone = prefixMatch[1].replace(/[()]/g, '').trim() || null;
+  } else if (barePhoneMatch) {
+    phone = barePhoneMatch[0].trim() || null;
+  }
 
   // Extract base college name before the dash
   let collegeName = 'MITE';
   const dashIndex = raw.indexOf('-');
   if (dashIndex > 0) {
     collegeName = raw.substring(0, dashIndex).trim();
-  } else if (!semMatch && !phoneMatch) {
+  } else if (!semMatch && !prefixMatch && !barePhoneMatch) {
     collegeName = raw;
   }
 
@@ -83,7 +90,12 @@ export function parseCaptainMetadata(college?: string | null): {
  */
 export async function fetchRegisteredTeams(): Promise<ServiceResult<RegisteredTeamWithRelations[]>> {
   try {
-    const { data, error } = await supabase
+    // Primary query selecting members.phone from PostgreSQL.
+    // If Migration 011 has not yet been applied, gracefully falls back to the schema without phone column.
+    let queryResult: {
+      data: unknown;
+      error: { message?: string } | null;
+    } = await supabase
       .from('teams')
       .select(`
         id,
@@ -97,6 +109,7 @@ export async function fetchRegisteredTeams(): Promise<ServiceResult<RegisteredTe
           name,
           email,
           college,
+          phone,
           created_at
         ),
         wallets (
@@ -104,6 +117,36 @@ export async function fetchRegisteredTeams(): Promise<ServiceResult<RegisteredTe
         )
       `)
       .order('created_at', { ascending: false });
+
+    if (
+      queryResult.error &&
+      (queryResult.error.message?.includes('phone') ||
+        queryResult.error.message?.includes('column'))
+    ) {
+      queryResult = await supabase
+        .from('teams')
+        .select(`
+          id,
+          name,
+          captain_id,
+          locked,
+          created_at,
+          members (
+            id,
+            team_id,
+            name,
+            email,
+            college,
+            created_at
+          ),
+          wallets (
+            balance
+          )
+        `)
+        .order('created_at', { ascending: false });
+    }
+
+    const { data, error } = queryResult;
 
     if (error) {
       return {
@@ -126,10 +169,11 @@ export async function fetchRegisteredTeams(): Promise<ServiceResult<RegisteredTe
 
       const members: RegisteredMember[] = rawMembers.map((m) => ({
         ...m,
+        phone: m.phone ? m.phone.trim() : null,
         parsedUsn: parseUsnFromEmail(m.email),
       }));
 
-      // Find captain member
+      // Find captain member strictly through team.captain_id
       let captainMember: RegisteredMember | undefined;
       if (rawTeam.captain_id) {
         captainMember = members.find((m) => m.id === rawTeam.captain_id);
@@ -140,12 +184,13 @@ export async function fetchRegisteredTeams(): Promise<ServiceResult<RegisteredTe
 
       let captain: RegisteredCaptainDetails | null = null;
       if (captainMember) {
+        const directPhone = captainMember.phone?.trim();
         const parsedMeta = parseCaptainMetadata(captainMember.college);
         captain = {
           member: captainMember,
           usn: captainMember.parsedUsn,
           semester: parsedMeta.semester,
-          phone: parsedMeta.phone,
+          phone: directPhone || parsedMeta.phone,
           collegeName: parsedMeta.collegeName,
         };
       }
@@ -184,7 +229,8 @@ export async function fetchRegisteredTeams(): Promise<ServiceResult<RegisteredTe
  */
 export function calculateRegistrationStats(
   teams: RegisteredTeamWithRelations[],
-  controlSettings?: Partial<RegistrationControlSettings>
+  controlSettings?: Partial<RegistrationControlSettings>,
+  deletedTeamsCount = 0
 ): RegistrationStatsData {
   const totalTeams = teams.length;
   const totalParticipants = teams.reduce((acc, t) => acc + (t.members?.length || 0), 0);
@@ -204,6 +250,7 @@ export function calculateRegistrationStats(
     availableCapacity,
     capacityPercentage,
     isRegistrationOpen,
+    deletedTeamsCount,
   };
 }
 
@@ -458,6 +505,129 @@ export async function updateMaxTeamsCapacity(
   } catch (err: unknown) {
     const msg =
       err instanceof Error ? err.message : 'Unknown error updating maximum team capacity.';
+    return {
+      success: false,
+      error: msg,
+    };
+  }
+}
+
+/**
+ * Updates the lock status of a specific subset of teams (bulk action).
+ * Uses the authenticated Supabase client respecting Admin RLS policy ("Admins manage teams").
+ */
+export async function updateSelectedTeamsLockStatus(
+  teamIds: string[],
+  locked: boolean
+): Promise<ServiceResult<{ updatedCount: number; locked: boolean }>> {
+  try {
+    if (!teamIds || teamIds.length === 0) {
+      return {
+        success: false,
+        error: 'No teams selected to update lock status.',
+      };
+    }
+
+    const { data, error } = await supabase
+      .from('teams')
+      .update({ locked })
+      .in('id', teamIds)
+      .select('id');
+
+    if (error) {
+      return {
+        success: false,
+        error: error.message || `Failed to ${locked ? 'lock' : 'unlock'} selected teams.`,
+      };
+    }
+
+    const updatedCount = Array.isArray(data) ? data.length : 0;
+
+    return {
+      success: true,
+      data: {
+        updatedCount,
+        locked,
+      },
+    };
+  } catch (err: unknown) {
+    const msg =
+      err instanceof Error ? err.message : `Unknown error updating lock status for selected teams.`;
+    return {
+      success: false,
+      error: msg,
+    };
+  }
+}
+
+/**
+ * Fetches the count of deleted teams tracked via audit_log records.
+ * Queries rows where action = 'team_deleted' using head: true for high efficiency.
+ * Respects Admin RLS policy ("Admins view audit log").
+ */
+export async function fetchDeletedTeamsCount(): Promise<ServiceResult<number>> {
+  try {
+    const { count, error } = await supabase
+      .from('audit_log')
+      .select('*', { count: 'exact', head: true })
+      .eq('action', 'team_deleted');
+
+    if (error) {
+      return {
+        success: false,
+        error: error.message || 'Failed to fetch deleted teams count from audit log.',
+      };
+    }
+
+    return {
+      success: true,
+      data: count ?? 0,
+    };
+  } catch (err: unknown) {
+    const msg =
+      err instanceof Error ? err.message : 'Unknown error fetching deleted teams count.';
+    return {
+      success: false,
+      error: msg,
+    };
+  }
+}
+
+/**
+ * Permanently deletes eligible locked teams through the transactional Supabase RPC function.
+ * Enforces admin authorization, locked-status verification, and protected record validation.
+ */
+export async function deleteTeams(
+  teamIds: string[]
+): Promise<ServiceResult<DeleteTeamsResult>> {
+  try {
+    if (!teamIds || teamIds.length === 0) {
+      return {
+        success: false,
+        error: 'No teams selected for deletion.',
+      };
+    }
+
+    const { data, error } = await supabase.rpc('delete_teams', {
+      p_team_ids: teamIds,
+    });
+
+    if (error) {
+      return {
+        success: false,
+        error: error.message || 'Failed to delete selected teams.',
+      };
+    }
+
+    const result = data as unknown as DeleteTeamsResult;
+
+    return {
+      success: true,
+      data: result,
+    };
+  } catch (err: unknown) {
+    const msg =
+      err instanceof Error ? err.message : 'Unknown error executing team deletion.';
     return {
       success: false,
       error: msg,

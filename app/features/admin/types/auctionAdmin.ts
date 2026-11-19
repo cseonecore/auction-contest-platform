@@ -239,6 +239,7 @@ export type AdminNavSection =
   | 'registration'
   | 'auction'
   | 'results'
+  | 'submissions'
   | 'settings'
   // Preserved for backward compatibility
   | 'overview'
