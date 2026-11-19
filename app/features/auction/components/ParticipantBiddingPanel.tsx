@@ -12,7 +12,9 @@ interface ParticipantBiddingPanelProps {
   leadingTeamName: string | null;
   isLeader: boolean;
   walletBalance: number;
-  hasWonRound: boolean;
+  hasWonRound?: boolean;
+  wonCount?: number;
+  currentRound?: number;
   minBid?: number;
   minRaise?: number;
   isCaptain?: boolean;
@@ -32,9 +34,11 @@ export function ParticipantBiddingPanel({
   leadingTeamName: _leadingTeamName,
   isLeader,
   walletBalance,
-  hasWonRound,
+  hasWonRound = false,
+  wonCount = 0,
+  currentRound = 1,
   minBid = 10,
-  minRaise = 10,
+  minRaise = 5,
   isCaptain = true,
   eliminated = false,
   paused = false,
@@ -45,18 +49,19 @@ export function ParticipantBiddingPanel({
   // Base required bid according to backend rules
   const baseNextBid = currentBid === 0 ? minBid : currentBid + minRaise;
 
-  // Selected increment (default: 0 or +10)
+  // Selected increment preset or custom total bid
   const [selectedIncrement, setSelectedIncrement] = useState<number>(0);
+  const [customBidInput, setCustomBidInput] = useState<string>("");
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
 
   // Proposed bid calculation
-  const proposedBid = baseNextBid + selectedIncrement;
+  const parsedCustom = customBidInput.trim() !== "" ? parseInt(customBidInput.trim(), 10) : NaN;
+  const isCustom = !isNaN(parsedCustom) && parsedCustom > 0;
+  const proposedBid = isCustom ? parsedCustom : baseNextBid + selectedIncrement;
 
-  // place_bid() rejects any bid whose amount exceeds the team's
-  // wallet (balance checked against the authoritative balance), so a
-  // raise that would go past the wallet can never succeed.
+  // Wallet check
   const walletCapExceeded = proposedBid > walletBalance;
 
   // Validation — mirrors the rules enforced by place_bid() in PostgreSQL.
@@ -67,6 +72,8 @@ export function ParticipantBiddingPanel({
     walletBalance,
     isLeader,
     hasWonRound,
+    wonCount,
+    currentRound,
     isCaptain,
     slotStatus,
     eliminated,
@@ -95,12 +102,19 @@ export function ParticipantBiddingPanel({
 
   const handleIncrementClick = (inc: number) => {
     setFeedbackError(null);
+    setCustomBidInput(""); // Clear custom input when using presets
     if (selectedIncrement === inc) {
       // Toggle off
       setSelectedIncrement(0);
     } else {
       setSelectedIncrement(inc);
     }
+  };
+
+  const handleCustomBidChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFeedbackError(null);
+    setSelectedIncrement(0); // Clear preset when typing custom bid
+    setCustomBidInput(e.target.value);
   };
 
   const handleOpenConfirm = () => {
@@ -117,6 +131,7 @@ export function ParticipantBiddingPanel({
       if (res.success) {
         setIsConfirmOpen(false);
         setSelectedIncrement(0);
+        setCustomBidInput("");
       } else {
         setFeedbackError(res.error || "Failed to place bid. Please try again.");
       }
@@ -130,22 +145,22 @@ export function ParticipantBiddingPanel({
 
   return (
     <div className="w-full select-none">
-      {/* 2x2 Large Rounded Square Buttons matching Figma Screenshot 3 */}
+      {/* 2x2 Large Rounded Square Buttons: +20, +15, +10, +5 */}
       <div className="grid grid-cols-2 gap-3 sm:gap-3.5">
         {[
+          { label: "+20", value: 20 },
+          { label: "+15", value: 15 },
           { label: "+10", value: 10 },
           { label: "+5", value: 5 },
-          { label: "+3", value: 3 },
-          { label: "+1", value: 1 },
         ].map(({ label, value }) => {
-          const isSelected = selectedIncrement === value;
+          const isSelected = !isCustom && selectedIncrement === value;
           return (
             <button
               key={label}
               type="button"
               disabled={!validation.canBid || baseNextBid + value > walletBalance}
               onClick={() => handleIncrementClick(value)}
-              className={`h-24 sm:h-28 rounded-2xl flex items-center justify-center font-black text-3xl sm:text-4xl transition-all duration-150 cursor-pointer shadow-lg disabled:opacity-40 disabled:cursor-not-allowed ${
+              className={`h-20 sm:h-24 rounded-2xl flex items-center justify-center font-black text-2xl sm:text-3xl transition-all duration-150 cursor-pointer shadow-lg disabled:opacity-40 disabled:cursor-not-allowed ${
                 isSelected
                   ? "bg-[#fe5102] text-white ring-4 ring-[#fe5102]/30 scale-[0.98]"
                   : "bg-[#33353b] hover:bg-[#3d3f47] text-white active:scale-95 border border-zinc-700/60"
@@ -155,6 +170,29 @@ export function ParticipantBiddingPanel({
             </button>
           );
         })}
+      </div>
+
+      {/* Custom Total Bid Input */}
+      <div className="mt-3">
+        <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
+          Or Enter Custom Total Bid
+        </label>
+        <div className="relative">
+          <input
+            type="number"
+            min={baseNextBid}
+            max={walletBalance}
+            step={1}
+            value={customBidInput}
+            onChange={handleCustomBidChange}
+            disabled={!validation.canBid}
+            placeholder={`Minimum ${baseNextBid} coins`}
+            className="w-full px-4 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900/90 text-white font-mono font-bold text-sm focus:outline-none focus:ring-2 focus:ring-[#fe5102] placeholder:text-zinc-600 disabled:opacity-40 disabled:cursor-not-allowed"
+          />
+          <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-mono font-semibold text-zinc-500">
+            COINS
+          </span>
+        </div>
       </div>
 
       {/* Bid Calculation Summary Bar */}
@@ -171,7 +209,7 @@ export function ParticipantBiddingPanel({
             Selected Raise
           </span>
           <span className="font-bold text-[#fe5102] font-mono">
-            {selectedIncrement > 0 ? `+${selectedIncrement}` : "Standard"}
+            {isCustom ? "Custom" : selectedIncrement > 0 ? `+${selectedIncrement}` : "Standard (+5)"}
           </span>
         </div>
 

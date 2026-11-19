@@ -119,8 +119,8 @@ export interface Database {
         Row: {
           id: string
           topic_id: string
-          round: 1 | 2
-          status: "pending" | "open" | "sold" | "skipped"
+          round: 1 | 2 | 3
+          status: "pending" | "open" | "sold" | "skipped" | "unsold"
           current_bid: number
           min_bid: number
           leader_team_id: string | null
@@ -130,8 +130,8 @@ export interface Database {
         Insert: {
           id?: string
           topic_id: string
-          round: 1 | 2
-          status?: "pending" | "open" | "sold" | "skipped"
+          round: 1 | 2 | 3
+          status?: "pending" | "open" | "sold" | "skipped" | "unsold"
           current_bid?: number
           min_bid?: number
           leader_team_id?: string | null
@@ -141,8 +141,8 @@ export interface Database {
         Update: {
           id?: string
           topic_id?: string
-          round?: 1 | 2
-          status?: "pending" | "open" | "sold" | "skipped"
+          round?: 1 | 2 | 3
+          status?: "pending" | "open" | "sold" | "skipped" | "unsold"
           current_bid?: number
           min_bid?: number
           leader_team_id?: string | null

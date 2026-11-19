@@ -268,13 +268,13 @@ async function main() {
     const res = await db.query(`select public.place_bid($1, 10) as r`, [slot1])
     assert(res.rows[0].r.success === true, 'valid bid rejected')
     assert(res.rows[0].r.current_bid === 10, `current bid is ${res.rows[0].r.current_bid}`)
-    assert(res.rows[0].r.min_next_bid === 20, `min next bid is ${res.rows[0].r.min_next_bid}`)
+    assert(res.rows[0].r.min_next_bid === 15, `min next bid is ${res.rows[0].r.min_next_bid}`)
     return `bid ${res.rows[0].r.amount}, next minimum ${res.rows[0].r.min_next_bid}`
   })
 
   await check('a raise below the minimum increment is rejected', async () => {
     await asUser(db, CAPTAIN_B, 'captain')
-    await expectError(db, 'bid', () => db.query(`select public.place_bid($1, 15)`, [slot1]), /Bid too low/)
+    await expectError(db, 'bid', () => db.query(`select public.place_bid($1, 12)`, [slot1]), /Bid too low/)
     return ''
   })
 

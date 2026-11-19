@@ -22,6 +22,8 @@ import {
   selectAuctionQuestion,
   skipSlot,
   startAuction,
+  setAuctionRound,
+  finalizeRound3Eliminations,
   startAuctionTimer,
 } from "@/features/admin/services/adminAuctionService";
 
@@ -127,6 +129,16 @@ export function useAdminAuctionActions({
 
       reset: () =>
         run("reset", () => resetAuction(), "Auction reset — bids, ledger and wallets restored."),
+
+      setRound: (round: 1 | 2 | 3) =>
+        run("round", () => setAuctionRound(round), `Auction transitioned to Round ${round}.`),
+
+      finalizeEliminations: () =>
+        run(
+          "finalize-eliminations",
+          () => finalizeRound3Eliminations(),
+          "Contest qualifications and eliminations finalized after Round 3."
+        ),
 
       startTimer: (seconds?: number) =>
         run("timer-start", () => startAuctionTimer(seconds), "Solving timer started."),

@@ -18,8 +18,12 @@ export interface BidValidationInput {
   walletBalance: number;
   /** The team is already leading this item. */
   isLeader: boolean;
-  /** The team already won an item in this round. */
-  hasWonRound: boolean;
+  /** The team already won an item in this round (kept for advisory context; multiple wins are allowed). */
+  hasWonRound?: boolean;
+  /** Total number of questions successfully won by the team across the contest (max 2). */
+  wonCount?: number;
+  /** Active auction round (1, 2, or 3). */
+  currentRound?: number;
   /** Only the captain may bid. */
   isCaptain: boolean;
   /** Status of the auction item. */
@@ -64,6 +68,12 @@ export function validateBid(input: BidValidationInput): BidValidationResult {
 
   if (!input.isCaptain) return fail("Only the team captain can place bids.");
   if (input.eliminated) return fail("Your team has been eliminated from the auction.");
+  if (input.currentRound === 3 && (input.wonCount ?? 0) >= 2) {
+    return fail("Your team already has 2 problem statements and cannot participate in Round 3.");
+  }
+  if (input.wonCount !== undefined && input.wonCount >= 2) {
+    return fail("Your team has already acquired the maximum limit of 2 problem statements.");
+  }
   if (input.paused) return fail("Bidding is currently paused.");
   if (input.slotStatus !== "open") {
     if (input.timerExpired) {
@@ -74,7 +84,7 @@ export function validateBid(input: BidValidationInput): BidValidationResult {
     }
     return fail("The auction item is not open for bidding.");
   }
-  if (input.hasWonRound) return fail("Your team already won an item in this round.");
+  // Multiple wins per round are supported — teams are allowed to win multiple problems.
   if (input.isLeader) return fail("Your team is already the highest bidder.");
   if (input.walletBalance < minNextBid) {
     return fail(`Insufficient balance — ${minNextBid} points are required.`);

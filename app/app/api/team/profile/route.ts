@@ -89,13 +89,39 @@ export async function GET(request: Request) {
       .eq("team_id", team.id)
       .maybeSingle();
 
-    // 4. Fetch Won Slots & Topics (Assigned Problems)
-    const { data: wonSlots } = await db
-      .from("slots")
-      .select(
-        "id, round, status, current_bid, topic_id, topics(id, title, description, level, criterion)"
-      )
-      .eq("winner_team_id", team.id);
+    // 4. Fetch Won Slots & Topics (Assigned Problems) with Dev Time & Bonus Data
+    const [{ data: wonSlots }, { data: devTimeSetting }, { data: bonuses }] = await Promise.all([
+      db
+        .from("slots")
+        .select(
+          "id, round, status, current_bid, question_number, topic_id, topics(id, title, description, level, criterion)"
+        )
+        .eq("winner_team_id", team.id)
+        .eq("status", "sold"),
+      db
+        .from("settings")
+        .select("value")
+        .eq("key", "solving_timer_seconds")
+        .maybeSingle(),
+      db
+        .from("bonus_transactions")
+        .select("slot_id, bonus_seconds")
+        .eq("team_id", team.id),
+    ]);
+
+    const baseDevSeconds =
+      typeof devTimeSetting?.value === "number"
+        ? devTimeSetting.value
+        : typeof devTimeSetting?.value === "string"
+        ? parseInt(devTimeSetting.value, 10) || 120
+        : 120;
+
+    const bonusMap = new Map<string, number>();
+    (bonuses || []).forEach((b: { slot_id: string; bonus_seconds: number }) => {
+      if (b.slot_id) {
+        bonusMap.set(b.slot_id, (bonusMap.get(b.slot_id) ?? 0) + (b.bonus_seconds ?? 0));
+      }
+    });
 
     // 5. Fetch Auction Status
     // "Live" means the participant can enter the arena right now:
@@ -165,20 +191,32 @@ export async function GET(request: Request) {
       id: string;
       round: number;
       status: string;
+      current_bid?: number;
+      question_number?: number | null;
       topics?: {
         title?: string;
         description?: string;
-      } | Array<{ title?: string; description?: string }>;
+        level?: string;
+      } | Array<{ title?: string; description?: string; level?: string }>;
     }
 
     const assignedProblems = (wonSlots || []).map((slot: SlotRecord, idx: number) => {
       const topic = Array.isArray(slot.topics) ? slot.topics[0] : slot.topics;
+      const addOnSeconds = bonusMap.get(slot.id) ?? 0;
       return {
         id: slot.id,
         number: idx + 1,
+        questionNumber: slot.question_number ?? idx + 1,
         title: topic?.title || `Problem ${idx + 1}`,
         statement: topic?.title || "Problem statement",
         description: topic?.description || "Description in detail",
+        difficulty: topic?.level || "easy",
+        winningBid: slot.current_bid ?? 0,
+        baseDevSeconds,
+        addOnSeconds,
+        totalDevSeconds: baseDevSeconds + addOnSeconds,
+        status: slot.status || "sold",
+        round: slot.round || 1,
       };
     });
 

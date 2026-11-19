@@ -198,7 +198,7 @@ export function AddTopicModal({
             </div>
           </div>
 
-          {/* Starting Points & Slots Count Grid */}
+          {/* Starting Points & Slots Note Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {/* Starting Points */}
             <div className="space-y-1.5">
@@ -229,24 +229,17 @@ export function AddTopicModal({
               </p>
             </div>
 
-            {/* Slots to Generate */}
+            {/* 1 Slot per Problem Note */}
             <div className="space-y-1.5">
-              <label htmlFor="slotsCountInput" className="text-xs font-bold text-zinc-800 dark:text-zinc-200 block">
-                Number of Slots to Create
+              <label className="text-xs font-bold text-zinc-800 dark:text-zinc-200 block">
+                Queue Item Allocation
               </label>
-              <select
-                id="slotsCountInput"
-                value={slotsCount}
-                onChange={(e) => setSlotsCount(Number(e.target.value))}
-                disabled={isExecuting}
-                className="w-full px-3 py-2 text-xs rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value={1}>1 Slot (Standard)</option>
-                <option value={2}>2 Slots (Paired A &amp; B)</option>
-                <option value={3}>3 Slots</option>
-              </select>
+              <div className="px-3 py-2 text-xs rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50 text-zinc-700 dark:text-zinc-300 flex items-center justify-between">
+                <span className="font-semibold">1 Auction Item</span>
+                <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Standard</span>
+              </div>
               <p className="text-[10px] text-zinc-500">
-                Each slot will be added to the Pending queue.
+                One auction item per problem statement.
               </p>
             </div>
           </div>

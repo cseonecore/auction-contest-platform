@@ -13,25 +13,38 @@
  * header, auth guard and dark shell.
  */
 
-import React, { Suspense } from 'react';
+import React, { useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { AdminHeader } from '@/features/admin/components/AdminHeader';
+import { AdminSubnav } from '@/features/admin/components/AdminSubnav';
 import { AdminAuthGuard } from '@/features/admin/components/AdminAuthGuard';
 import { useAdminAuth } from '@/features/admin/hooks/useAdminAuth';
 import { AdminAuctionRoom } from '@/features/auction/components/AdminAuctionRoom';
 
 function AdminAuctionContent() {
   const { user, role, signOut } = useAdminAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Redirect obsolete tab=allocations to the unified /admin/results page
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab === 'allocations') {
+      router.replace('/admin/results');
+    }
+  }, [searchParams, router]);
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#111215] font-sans text-white">
+    <div className="flex min-h-screen flex-col bg-[#0d0d0d] font-sans text-white select-none">
       <AdminHeader
         userEmail={user?.email}
         role={role}
         onSignOut={user ? signOut : undefined}
-        currentPage="Auction"
+        currentPage="Auctioning"
       />
 
-      <main className="flex-1 w-full">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8">
+        <AdminSubnav currentSection="auction" />
         <AdminAuctionRoom />
       </main>
     </div>

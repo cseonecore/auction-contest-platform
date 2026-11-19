@@ -4,15 +4,12 @@
  * AdminSubnav Component
  * Bid2Build (Auction Contest Platform)
  *
- * Universal navigation bar for Admin sections:
- *  1. Admin Dashboard (/admin)
- *  2. Team Registration (/admin/registration)
- *  3. Auction Overview (/admin/auction?tab=overview)
- *  4. Slot Queue (/admin/auction?tab=queue)
- *  5. Active Controller (/admin/auction?tab=controller)
- *  6. Live Bid Feed (/admin/auction?tab=feed)
- *  7. Team Allocations (/admin/auction?tab=allocations)
- *  8. Contest Settings (/admin/settings)
+ * Consolidated navigation bar for Admin sections:
+ *  1. Dashboard (/admin)
+ *  2. Registration (/admin/registration)
+ *  3. Auctioning (/admin/auction)
+ *  4. Bidding Results (/admin/results)
+ *  5. Settings (/admin/settings)
  */
 
 import React from 'react';
@@ -26,9 +23,9 @@ interface AdminSubnavProps {
 
 interface NavItem {
   id: AdminNavSection;
+  aliases?: AdminNavSection[];
   label: string;
   href: string;
-  group: 'main' | 'auction' | 'config';
   icon: (active: boolean) => React.ReactNode;
   badge?: string | number;
 }
@@ -39,10 +36,9 @@ export function AdminSubnav({ currentSection, activeAuctionCount }: AdminSubnavP
       id: 'dashboard',
       label: 'Dashboard',
       href: '/admin',
-      group: 'main',
       icon: (active) => (
         <svg
-          className={`w-4 h-4 ${active ? 'text-blue-600 dark:text-blue-400' : 'text-zinc-400'}`}
+          className={`w-4 h-4 ${active ? 'text-[#fe5102]' : 'text-zinc-400'}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -60,10 +56,9 @@ export function AdminSubnav({ currentSection, activeAuctionCount }: AdminSubnavP
       id: 'registration',
       label: 'Registration',
       href: '/admin/registration',
-      group: 'main',
       icon: (active) => (
         <svg
-          className={`w-4 h-4 ${active ? 'text-blue-600 dark:text-blue-400' : 'text-zinc-400'}`}
+          className={`w-4 h-4 ${active ? 'text-[#fe5102]' : 'text-zinc-400'}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -78,56 +73,14 @@ export function AdminSubnav({ currentSection, activeAuctionCount }: AdminSubnavP
       ),
     },
     {
-      id: 'overview',
-      label: 'Auction Overview',
-      href: '/admin/auction?tab=overview',
-      group: 'auction',
-      icon: (active) => (
-        <svg
-          className={`w-4 h-4 ${active ? 'text-blue-600 dark:text-blue-400' : 'text-zinc-400'}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-          />
-        </svg>
-      ),
-    },
-    {
-      id: 'queue',
-      label: 'Slot Queue',
-      href: '/admin/auction?tab=queue',
-      group: 'auction',
-      icon: (active) => (
-        <svg
-          className={`w-4 h-4 ${active ? 'text-blue-600 dark:text-blue-400' : 'text-zinc-400'}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M4 6h16M4 10h16M4 14h16M4 18h16"
-          />
-        </svg>
-      ),
-    },
-    {
-      id: 'controller',
-      label: 'Active Controller',
-      href: '/admin/auction?tab=controller',
-      group: 'auction',
+      id: 'auction',
+      aliases: ['overview', 'queue', 'controller', 'feed'],
+      label: 'Auctioning',
+      href: '/admin/auction',
       badge: activeAuctionCount && activeAuctionCount > 0 ? 'LIVE' : undefined,
       icon: (active) => (
         <svg
-          className={`w-4 h-4 ${active ? 'text-amber-600 dark:text-amber-400' : 'text-zinc-400'}`}
+          className={`w-4 h-4 ${active ? 'text-[#fe5102]' : 'text-zinc-400'}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -142,13 +95,13 @@ export function AdminSubnav({ currentSection, activeAuctionCount }: AdminSubnavP
       ),
     },
     {
-      id: 'feed',
-      label: 'Live Bid Feed',
-      href: '/admin/auction?tab=feed',
-      group: 'auction',
+      id: 'results',
+      aliases: ['allocations'],
+      label: 'Bidding Results',
+      href: '/admin/results',
       icon: (active) => (
         <svg
-          className={`w-4 h-4 ${active ? 'text-blue-600 dark:text-blue-400' : 'text-zinc-400'}`}
+          className={`w-4 h-4 ${active ? 'text-[#fe5102]' : 'text-zinc-400'}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -157,28 +110,7 @@ export function AdminSubnav({ currentSection, activeAuctionCount }: AdminSubnavP
             strokeLinecap="round"
             strokeLinejoin="round"
             strokeWidth={2}
-            d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-          />
-        </svg>
-      ),
-    },
-    {
-      id: 'allocations',
-      label: 'Team Allocations',
-      href: '/admin/auction?tab=allocations',
-      group: 'auction',
-      icon: (active) => (
-        <svg
-          className={`w-4 h-4 ${active ? 'text-blue-600 dark:text-blue-400' : 'text-zinc-400'}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
           />
         </svg>
       ),
@@ -187,10 +119,9 @@ export function AdminSubnav({ currentSection, activeAuctionCount }: AdminSubnavP
       id: 'settings',
       label: 'Settings',
       href: '/admin/settings',
-      group: 'config',
       icon: (active) => (
         <svg
-          className={`w-4 h-4 ${active ? 'text-blue-600 dark:text-blue-400' : 'text-zinc-400'}`}
+          className={`w-4 h-4 ${active ? 'text-[#fe5102]' : 'text-zinc-400'}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -215,26 +146,28 @@ export function AdminSubnav({ currentSection, activeAuctionCount }: AdminSubnavP
   return (
     <nav
       aria-label="Admin Navigation"
-      className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-1.5 shadow-2xs mb-6 overflow-x-auto"
+      className="bg-[#141518] border border-white/10 rounded-xl p-1.5 shadow-2xs mb-6 overflow-x-auto select-none"
     >
-      <div className="flex items-center gap-1 min-w-max">
+      <div className="flex items-center gap-1.5 min-w-max">
         {items.map((item) => {
-          const isActive = currentSection === item.id;
+          const isActive =
+            currentSection === item.id ||
+            Boolean(item.aliases && item.aliases.includes(currentSection));
           return (
             <Link
               key={item.id}
               href={item.href}
-              className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${
                 isActive
-                  ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 shadow-2xs'
-                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/60'
+                  ? 'bg-[#fe5102] text-white shadow-md shadow-orange-500/20'
+                  : 'text-zinc-400 hover:text-white hover:bg-white/5'
               }`}
             >
               {item.icon(isActive)}
               <span>{item.label}</span>
 
               {item.badge && (
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-500 text-white uppercase tracking-wider animate-pulse">
+                <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black bg-amber-400 text-amber-950 uppercase tracking-wider animate-pulse">
                   {item.badge}
                 </span>
               )}

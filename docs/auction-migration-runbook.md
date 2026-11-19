@@ -26,6 +26,9 @@
 | 9 | `018_rls_hardening.sql` | Realtime publication, column-level lockdown of `challenge_problems.test_cases`, explicit grants and the write lockdown. |
 | 10 | `019_session_event_stream.sql` | Adds the session lifecycle trigger so Start / Stop / Pause / Resume / Reset publish `session_started`, `session_ended`, `auction_paused`, `auction_resumed` and `auction_reset` to the realtime event stream. |
 | 11 | `020_session_active_slot_sync.sql` | Replaces `open_slot`, `open_bidding`, `pause_auction` and `resume_auction` so the session records its live item (`active_slot_id`); pause/resume can then freeze and restore that item's authoritative clock. |
+| 12 | `021_auction_bugfixes.sql` | Bugfixes: Removes one-win-per-round restriction; sets min raise to 5; introduces server-authoritative timer settlement (`settle_expired_slots()`); fixes topic creation to enforce 1 item; introduces `get_bidding_results()` and `align_identities()`. |
+| 13 | `022_auction_fixes.sql` | Hardening & refinement: Enforces strict captain authorization with auto-healing; handles timer extension correctly; prevents duplicate events; adds comprehensive `get_bidding_results()` with development duration calculations. |
+| 14 | `023_three_round_auction.sql` | 3-Round System & Qualification: Expands CHECK constraints on round to (1, 2, 3); introduces `set_auction_round(round)`; updates `start_auction` and `open_slot` for Round 3 recovery of unsold/skipped topics; enforces universal 2-question limit and Round 3 exclusion for teams with 2 questions; introduces `finalize_round_3_eliminations()` to eliminate teams with < 2 questions and qualify teams with >= 2. |
 
 **Migration 008 is intentionally excluded.** It seeds two auction items per topic
 (40 items). The contest now has **one** item per topic (20 items) and

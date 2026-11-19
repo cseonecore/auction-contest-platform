@@ -237,12 +237,52 @@ export type AllocationSortField = 'name' | 'balance' | 'spent' | 'status';
 export type AdminNavSection =
   | 'dashboard'
   | 'registration'
+  | 'auction'
+  | 'results'
+  | 'settings'
+  // Preserved for backward compatibility
   | 'overview'
   | 'queue'
   | 'controller'
   | 'feed'
-  | 'allocations'
-  | 'settings';
+  | 'allocations';
+
+export interface BiddingResultProblem {
+  slot_id: string;
+  question_number: number | null;
+  round: number;
+  difficulty: string;
+  topic_title: string;
+  winning_bid: number;
+  status: string;
+  sold_at: string | null;
+  base_dev_seconds: number;
+  bonus_dev_seconds: number;
+  total_dev_seconds: number;
+}
+
+export interface BiddingResultMember {
+  name: string;
+  usn: string;
+  is_captain: boolean;
+}
+
+export interface BiddingResultTeam {
+  team_id: string;
+  team_name: string;
+  captain_name: string;
+  captain_usn: string;
+  members: BiddingResultMember[];
+  member_count: number;
+  registered_at: string;
+  balance: number;
+  total_spent: number;
+  problems: BiddingResultProblem[];
+  won_count: number;
+  total_base_dev_seconds: number;
+  total_bonus_dev_seconds: number;
+  total_dev_seconds: number;
+}
 
 export interface UseAdminAuctionOptions {
   autoSubscribeRealtime?: boolean;

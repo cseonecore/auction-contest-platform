@@ -8,9 +8,13 @@ export interface LeaderboardTeam {
   id: string;
   name: string;
   balance?: number;
-  currentBid: number;
+  currentBid?: number;
+  highestBid?: number;
+  winningBid?: number;
+  totalSpent?: number;
+  winsCount?: number;
   characterIndex?: number;
-  /** Overrides the displayed number (e.g. questions won instead of bid). */
+  /** Overrides the displayed number (e.g. custom monetary stat). */
   stat?: number;
   /** Eliminated teams render in dark red regardless of rank. */
   eliminated?: boolean;
@@ -29,7 +33,7 @@ export function LeaderboardCapsule({
   totalTeams = 20,
   isCurrentTeam = false,
 }: LeaderboardCapsuleProps) {
-  // Determine rank color styling strictly matching Screenshot 1 & 3
+  // Determine rank color styling strictly matching contest visual palette
   const getRankStyle = () => {
     // Eliminated teams: deep dark red, dimmed
     if (team.eliminated) {
@@ -63,15 +67,34 @@ export function LeaderboardCapsule({
     if (rank === 7) {
       return "bg-[#0e7490] border-cyan-400/40 text-white";
     }
-    // Bottom 4 Teams (17th to 20th in 20-team contest): Deep Dark Red / Wine
+    // Bottom 4 Teams: Deep Dark Red / Wine
     if (rank >= totalTeams - 3) {
       return "bg-[#450a0a] border-red-900/50 text-white/80";
     }
-    // 8th to 16th: Neutral dark grey
+    // Neutral dark grey
     return "bg-[#27272a] border-zinc-700/50 text-white/90";
   };
 
   const mascotSrc = getMascotSrc(team.id || team.name, team.characterIndex || rank);
+
+  // Monetary value determination
+  const hasLiveBid = Boolean(team.currentBid && team.currentBid > 0);
+  const totalSpent = team.totalSpent ?? (team.balance != null ? Math.max(0, 100 - team.balance) : 0);
+  const winsCount = team.winsCount ?? team.stat ?? 0;
+
+  let displayAmount: number;
+  let amountLabel: string;
+
+  if (hasLiveBid) {
+    displayAmount = team.currentBid!;
+    amountLabel = "Highest Bid";
+  } else if (totalSpent > 0) {
+    displayAmount = totalSpent;
+    amountLabel = "Total Spent";
+  } else {
+    displayAmount = team.balance ?? 100;
+    amountLabel = "Balance";
+  }
 
   return (
     <div
@@ -90,18 +113,31 @@ export function LeaderboardCapsule({
         />
       </div>
 
-      {/* Right Content: Team Name and Bid */}
+      {/* Right Content: Team Name, Wins Badge, Monetary Value */}
       <div className="flex-1 ml-3 text-left overflow-hidden">
-        <div className="text-[11px] font-semibold text-white/90 truncate leading-tight flex items-center gap-1">
-          {team.name}
-          {isCurrentTeam && (
-            <span className="text-[9px] bg-white/20 px-1 py-0.2 rounded-xs uppercase tracking-wider font-bold">
-              You
-            </span>
-          )}
+        <div className="text-[11px] font-semibold text-white/90 truncate leading-tight flex items-center justify-between gap-1">
+          <span className="truncate">{team.name}</span>
+          <div className="flex items-center gap-1 shrink-0">
+            {winsCount > 0 && (
+              <span className="text-[9px] bg-amber-400/30 text-amber-200 border border-amber-400/40 px-1 py-0.2 rounded-xs font-mono font-bold">
+                {winsCount} win{winsCount > 1 ? "s" : ""}
+              </span>
+            )}
+            {isCurrentTeam && (
+              <span className="text-[9px] bg-white/20 px-1 py-0.2 rounded-xs uppercase tracking-wider font-bold">
+                You
+              </span>
+            )}
+          </div>
         </div>
-        <div className="text-xl sm:text-2xl font-black text-white leading-tight font-sans tracking-tight">
-          {team.stat ?? team.currentBid ?? 0}
+
+        <div className="flex items-baseline justify-between gap-1 mt-0.5">
+          <div className="text-xl sm:text-2xl font-black text-white leading-tight font-mono tracking-tight">
+            {displayAmount} <span className="text-[10px] font-bold text-white/70">PTS</span>
+          </div>
+          <span className="text-[9px] font-semibold text-white/70 uppercase tracking-wider shrink-0">
+            {amountLabel}
+          </span>
         </div>
       </div>
     </div>

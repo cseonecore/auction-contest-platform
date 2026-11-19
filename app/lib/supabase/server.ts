@@ -3,11 +3,12 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
 const supabaseUrl =
-  process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  "https://qqbuauryvhgssmmxiiuh.supabase.co";
 const supabaseKey =
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  "placeholder-key";
+  "sb_publishable_nRvQFOW3SK82rWBY6VsDGw_yw5-3Itj";
 
 /**
  * Server client bound to the caller's session cookie.

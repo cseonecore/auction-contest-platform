@@ -14,11 +14,12 @@ export function LiveLeaderboardGrid({
   currentTeamId,
   loading = false,
 }: LiveLeaderboardGridProps) {
-  // Sort teams defensively by current bid (descending)
+  // Sort teams defensively by current bid (descending), then balance, then name
   const sortedTeams = [...teams].sort((a, b) => {
-    if (b.currentBid !== a.currentBid) {
-      return b.currentBid - a.currentBid;
-    }
+    const bidDiff = (b.currentBid ?? 0) - (a.currentBid ?? 0);
+    if (bidDiff !== 0) return bidDiff;
+    const balDiff = (b.balance ?? 0) - (a.balance ?? 0);
+    if (balDiff !== 0) return balDiff;
     return a.name.localeCompare(b.name);
   });
 

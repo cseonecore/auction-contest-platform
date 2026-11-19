@@ -26,9 +26,24 @@ interface Member {
 interface AssignedProblem {
   id: string;
   number: number;
+  questionNumber?: number;
   title: string;
   statement: string;
   description: string;
+  difficulty?: string;
+  winningBid?: number;
+  baseDevSeconds?: number;
+  addOnSeconds?: number;
+  totalDevSeconds?: number;
+  status?: string;
+  round?: number;
+}
+
+function formatDevTime(seconds?: number): string {
+  if (seconds == null || isNaN(seconds) || seconds <= 0) return "0 min";
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return secs > 0 ? `${mins}m ${secs}s` : `${mins} min`;
 }
 
 interface Submission {
@@ -463,25 +478,70 @@ export default function ProfilePage() {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-3xl">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-4xl">
               {team.assignedProblems.map((prob) => (
                 <div
                   key={prob.id}
-                  className="bg-[#22242a] rounded-2xl p-5 border border-white/5 space-y-2 shadow-md"
+                  className="bg-[#22242a] rounded-2xl p-5 border border-white/5 space-y-3 shadow-md hover:border-white/10 transition-colors"
                 >
-                  <h3 className="text-base font-bold text-white tracking-tight">
-                    {prob.title || `Problem ${prob.number}`}
-                  </h3>
-                  {prob.statement && (
-                    <p className="text-xs font-semibold text-slate-300">
-                      {prob.statement}
-                    </p>
-                  )}
+                  <div className="flex items-start justify-between gap-2 border-b border-white/5 pb-2.5">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                        Slot #{String(prob.questionNumber ?? prob.number).padStart(2, "0")} · Round {prob.round ?? 1}
+                      </span>
+                      <h3 className="text-base font-bold text-white tracking-tight mt-0.5">
+                        {prob.title || `Problem ${prob.number}`}
+                      </h3>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${
+                          prob.difficulty?.toLowerCase() === "hard"
+                            ? "bg-purple-500/20 text-purple-300 border border-purple-500/30"
+                            : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                        }`}
+                      >
+                        {prob.difficulty || "Easy"}
+                      </span>
+                      <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                        {prob.status === "sold" ? "Acquired" : prob.status}
+                      </span>
+                    </div>
+                  </div>
+
                   {prob.description && (
-                    <p className="text-xs text-slate-400 leading-relaxed">
+                    <p className="text-xs text-slate-300 leading-relaxed">
                       {prob.description}
                     </p>
                   )}
+
+                  {/* Dev time & Financials breakdown */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-white/5 text-[11px]">
+                    <div className="bg-[#1a1b20] p-2 rounded-xl">
+                      <span className="text-slate-400 block text-[10px]">Winning Bid</span>
+                      <span className="font-mono font-bold text-amber-400">
+                        {prob.winningBid ?? 0} pts
+                      </span>
+                    </div>
+                    <div className="bg-[#1a1b20] p-2 rounded-xl">
+                      <span className="text-slate-400 block text-[10px]">Base Dev Time</span>
+                      <span className="font-mono font-bold text-slate-200">
+                        {formatDevTime(prob.baseDevSeconds)}
+                      </span>
+                    </div>
+                    <div className="bg-[#1a1b20] p-2 rounded-xl">
+                      <span className="text-slate-400 block text-[10px]">Add-on Time</span>
+                      <span className="font-mono font-bold text-emerald-400">
+                        +{formatDevTime(prob.addOnSeconds)}
+                      </span>
+                    </div>
+                    <div className="bg-[#1a1b20] p-2 rounded-xl">
+                      <span className="text-slate-400 block text-[10px]">Total Dev Time</span>
+                      <span className="font-mono font-black text-emerald-300">
+                        {formatDevTime(prob.totalDevSeconds)}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>

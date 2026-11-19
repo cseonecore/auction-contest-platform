@@ -293,8 +293,8 @@ async function main() {
 
   await check('a raise below the minimum increment is rejected', async () => {
     await asUser(db, CAPTAIN_A, 'captain')
-    await expectError(db, 'bid', () => db.query(`select public.place_bid($1, 25)`, [slot1]), /Bid too low/)
-    return 'min next bid is 30'
+    await expectError(db, 'bid', () => db.query(`select public.place_bid($1, 22)`, [slot1]), /Bid too low/)
+    return 'min next bid is 25'
   })
 
   await check('a valid raise extends the clock by exactly 5s', async () => {
@@ -335,20 +335,16 @@ async function main() {
     return 'A −30 once, B untouched'
   })
 
-  await check('one win per round is enforced after a restart', async () => {
+  await check('multiple wins in the same round are permitted after a restart', async () => {
     const nextRound1 = await slotFor('Hyperlocal Marketplace')
     await asUser(db, ADMIN, 'admin')
     await db.query(`select public.open_slot($1)`, [nextRound1])
     await asUser(db, CAPTAIN_A, 'captain')
-    await expectError(
-      db,
-      'bid',
-      () => db.query(`select public.place_bid($1, 10)`, [nextRound1]),
-      /already won a slot in Round 1/
-    )
+    const res = await db.query(`select public.place_bid($1, 10) as r`, [nextRound1])
+    assert(res.rows[0].r.success === true, 'round-1 winner can bid on another round-1 item')
     await asUser(db, ADMIN, 'admin')
     await db.query(`select public.skip_slot($1)`, [nextRound1])
-    return 'winner of round 1 blocked from round 1 items'
+    return 'winner of round 1 can bid and win again in the same round'
   })
 
   await check('every bid reached the event stream', async () => {
@@ -671,7 +667,7 @@ async function main() {
     const state = (await db.query(`select public.get_live_auction_state() as s`)).rows[0].s
     assert(state.active_slot.current_bid === 80, `current bid is ${state.active_slot.current_bid}`)
     assert(state.active_slot.leader_team_id === TEAM_D, 'the live leader is not Team Delta')
-    assert(state.active_slot.min_next_bid === 90, `min_next_bid is ${state.active_slot.min_next_bid}`)
+    assert(state.active_slot.min_next_bid === 85, `min_next_bid is ${state.active_slot.min_next_bid}`)
     const bidders = state.teams.filter((t) => t.current_bid > 0)
     assert(bidders.length === 4, `${bidders.length} teams show a bid`)
     assert(
@@ -723,6 +719,208 @@ async function main() {
     )
     assert(ledger.rows[0].n === 1, `${ledger.rows[0].n} debit entries`)
     return 'D 100 − 80 = 20, A/B/C untouched'
+  })
+
+  // ─────────────────────────────────────────────────────────────────────────
+  group('6. 3-Round question allocation, limits and elimination')
+  // ─────────────────────────────────────────────────────────────────────────
+  await check('reset the contest for clean 3-round test execution', async () => {
+    await asUser(db, ADMIN, 'admin')
+    await db.query(`select public.reset_auction()`)
+    await db.query(`select public.start_auction(1)`)
+    return 'clean auction state in Round 1'
+  })
+
+  let r1Slot1 = ''
+  let r1Slot2 = ''
+  let r2Slot1 = ''
+  let r2Slot2 = ''
+  let r3Slot1 = ''
+
+  await check('Scenario 1: Team A gets one question in Round 1 and another in Round 2', async () => {
+    // Round 1 item for Team A
+    r1Slot1 = (await db.query(`select id from public.slots where status = 'pending' and round = 1 limit 1`)).rows[0].id
+    await db.query(`select public.open_slot($1)`, [r1Slot1])
+    await asUser(db, CAPTAIN_A, 'captain')
+    await db.query(`select public.place_bid($1, 10)`, [r1Slot1])
+    await asUser(db, ADMIN, 'admin')
+    await db.query(`select public.close_slot($1)`, [r1Slot1])
+
+    // Advance to Round 2
+    await db.query(`select public.set_auction_round(2)`)
+
+    // Round 2 item for Team A
+    r2Slot1 = (await db.query(`select id from public.slots where status = 'pending' and round = 2 limit 1`)).rows[0].id
+    await db.query(`select public.open_slot($1)`, [r2Slot1])
+    await asUser(db, CAPTAIN_A, 'captain')
+    await db.query(`select public.place_bid($1, 10)`, [r2Slot1])
+    await asUser(db, ADMIN, 'admin')
+    await db.query(`select public.close_slot($1)`, [r2Slot1])
+
+    // Verify Team A won count is 2
+    const wonCount = (await db.query(
+      `select count(*)::int as n from public.slots where winner_team_id = $1 and status = 'sold'`,
+      [TEAM_A]
+    )).rows[0].n
+    assert(wonCount === 2, `Team A won ${wonCount} questions, expected 2`)
+    return 'Team A acquired 1 in R1 and 1 in R2 (total 2)'
+  })
+
+  await check('Scenario 2: Team B gets no question in Round 1 but acquires two across later rounds', async () => {
+    // In Round 1, Team B did not win any slot.
+    // In Round 2, Team B wins r2Slot2
+    r2Slot2 = (await db.query(`select id from public.slots where status = 'pending' and round = 2 limit 1`)).rows[0].id
+    await db.query(`select public.open_slot($1)`, [r2Slot2])
+    await asUser(db, CAPTAIN_B, 'captain')
+    await db.query(`select public.place_bid($1, 15)`, [r2Slot2])
+    await asUser(db, ADMIN, 'admin')
+    await db.query(`select public.close_slot($1)`, [r2Slot2])
+
+    // Second slot in Round 2 also won by Team B (multiple wins in same round allowed)
+    const r2Slot3 = (await db.query(`select id from public.slots where status = 'pending' and round = 2 limit 1`)).rows[0].id
+    await db.query(`select public.open_slot($1)`, [r2Slot3])
+    await asUser(db, CAPTAIN_B, 'captain')
+    await db.query(`select public.place_bid($1, 20)`, [r2Slot3])
+    await asUser(db, ADMIN, 'admin')
+    await db.query(`select public.close_slot($1)`, [r2Slot3])
+
+    const wonCountB = (await db.query(
+      `select count(*)::int as n from public.slots where winner_team_id = $1 and status = 'sold'`,
+      [TEAM_B]
+    )).rows[0].n
+    assert(wonCountB === 2, `Team B won ${wonCountB} questions, expected 2`)
+    return 'Team B had 0 in R1, acquired 2 in R2 (total 2)'
+  })
+
+  await check('Scenario 4: Teams with two questions (Team A and B) are excluded from Round 3', async () => {
+    // Switch to Round 3 recovery auction
+    await db.query(`select public.set_auction_round(3)`)
+
+    // Open a slot for Round 3
+    r3Slot1 = (await db.query(`select id from public.slots where status = 'pending' limit 1`)).rows[0].id
+    await db.query(`select public.open_slot($1)`, [r3Slot1])
+
+    // Team A has 2 questions -> must be rejected
+    await asUser(db, CAPTAIN_A, 'captain')
+    await expectError(
+      db,
+      'place_bid Team A in R3',
+      () => db.query(`select public.place_bid($1, 10)`, [r3Slot1]),
+      /cannot participate in the Round 3 recovery auction/
+    )
+
+    // Team B has 2 questions -> must be rejected
+    await asUser(db, CAPTAIN_B, 'captain')
+    await expectError(
+      db,
+      'place_bid Team B in R3',
+      () => db.query(`select public.place_bid($1, 10)`, [r3Slot1]),
+      /cannot participate in the Round 3 recovery auction/
+    )
+    return 'Teams with 2 questions strictly blocked from Round 3'
+  })
+
+  await check('Scenario 3: Team C (1 question from earlier) acquires its second in Round 3', async () => {
+    // Team C acquires r3Slot1
+    await asUser(db, CAPTAIN_C, 'captain')
+    await db.query(`select public.place_bid($1, 10)`, [r3Slot1])
+    await asUser(db, ADMIN, 'admin')
+    await db.query(`select public.close_slot($1)`, [r3Slot1])
+
+    // Now Team C wins another slot to reach 2
+    const r3Slot2 = (await db.query(`select id from public.slots where status = 'pending' limit 1`)).rows[0].id
+    await db.query(`select public.open_slot($1)`, [r3Slot2])
+    await asUser(db, CAPTAIN_C, 'captain')
+    await db.query(`select public.place_bid($1, 10)`, [r3Slot2])
+    await asUser(db, ADMIN, 'admin')
+    await db.query(`select public.close_slot($1)`, [r3Slot2])
+
+    const wonCountC = (await db.query(
+      `select count(*)::int as n from public.slots where winner_team_id = $1 and status = 'sold'`,
+      [TEAM_C]
+    )).rows[0].n
+    assert(wonCountC === 2, `Team C won ${wonCountC} questions, expected 2`)
+
+    // Universal limit check: Team C now has 2 questions, cannot acquire a 3rd
+    const r3Slot3 = (await db.query(`select id from public.slots where status = 'pending' limit 1`)).rows[0].id
+    await db.query(`select public.open_slot($1)`, [r3Slot3])
+    await asUser(db, CAPTAIN_C, 'captain')
+    await expectError(
+      db,
+      'place_bid Team C 3rd question',
+      () => db.query(`select public.place_bid($1, 10)`, [r3Slot3]),
+      /cannot participate in the Round 3 recovery auction/
+    )
+    await asUser(db, ADMIN, 'admin')
+    await db.query(`select public.skip_slot($1)`, [r3Slot3])
+    return 'Team C reached 2 questions and is capped'
+  })
+
+  await check('Scenario 5: Team D has fewer than 2 questions (0) and is eliminated after Round 3', async () => {
+    // Team D never won any question (0 questions)
+    // Run finalize_round_3_eliminations()
+    await asUser(db, ADMIN, 'admin')
+    const finRes = await db.query(`select public.finalize_round_3_eliminations() as r`)
+    const r = finRes.rows[0].r
+    assert(r.success === true, 'finalize_round_3_eliminations failed')
+    assert(r.qualified_count >= 3, `Expected at least 3 qualified teams (A, B, C), got ${r.qualified_count}`)
+    assert(r.eliminated_count >= 1, `Expected at least 1 eliminated team (D), got ${r.eliminated_count}`)
+
+    // Verify Team D is marked eliminated in DB
+    const elim = await db.query(`select * from public.team_eliminations where team_id = $1`, [TEAM_D])
+    assert(elim.rows.length === 1, 'Team D not in team_eliminations')
+    assert(elim.rows[0].rule === 'no_selection', `Rule was ${elim.rows[0].rule}`)
+    return `${r.qualified_count} teams qualified, ${r.eliminated_count} eliminated`
+  })
+
+  await check('Scenario 6: Eliminated team (Team D) cannot bid again', async () => {
+    const probeSlot = (await db.query(`select id from public.slots where status = 'pending' limit 1`)).rows[0].id
+    await db.query(`select public.open_slot($1)`, [probeSlot])
+    await asUser(db, CAPTAIN_D, 'captain')
+    await expectError(
+      db,
+      'eliminated team bid',
+      () => db.query(`select public.place_bid($1, 10)`, [probeSlot]),
+      /eliminated and can no longer bid/
+    )
+    await asUser(db, ADMIN, 'admin')
+    await db.query(`select public.skip_slot($1)`, [probeSlot])
+    return 'Team D blocked with "eliminated and can no longer bid"'
+  })
+
+  await check('Scenario 7: State read functions preserve allocations and qualification status', async () => {
+    const live = await db.query(`select public.get_live_auction_state() as r`)
+    const s = live.rows[0].r
+    assert(s.teams && s.teams.length > 0, 'No teams returned by get_live_auction_state')
+    const teamA = s.teams.find((t) => t.id === TEAM_A)
+    const teamD = s.teams.find((t) => t.id === TEAM_D)
+    assert(teamA && teamA.won_count === 2, `Team A won_count was ${teamA?.won_count}`)
+    assert(teamA.qualified === true, 'Team A was not marked qualified')
+    assert(teamD && teamD.won_count === 0, `Team D won_count was ${teamD?.won_count}`)
+    assert(teamD.qualified === false, 'Team D was marked qualified')
+
+    const res = await db.query(`select public.get_bidding_results() as r`)
+    const teams = res.rows[0].r.teams
+    const rA = teams.find((t) => t.team_id === TEAM_A)
+    const rD = teams.find((t) => t.team_id === TEAM_D)
+    assert(rA.qualified === true, 'Team A not qualified in get_bidding_results')
+    assert(rD.eliminated === true, 'Team D not eliminated in get_bidding_results')
+    return 'Authoritative state reflects allocations, qualification, and elimination'
+  })
+
+  await check('Scenario 8: Reopening skipped / unsold slots in Round 3 works correctly', async () => {
+    // In earlier migrations, only pending slots could be opened.
+    // In Round 3, skipped or unsold slots whose topic is not sold can be reopened.
+    const slotToSkip = (await db.query(`select id from public.slots where status = 'pending' limit 1`)).rows[0].id
+    await asUser(db, ADMIN, 'admin')
+    await db.query(`select public.open_slot($1)`, [slotToSkip])
+    await db.query(`select public.skip_slot($1)`, [slotToSkip])
+
+    const openRes = await db.query(`select public.open_slot($1) as r`, [slotToSkip])
+    assert(openRes.rows[0].r.success === true, 'Reopening skipped slot failed')
+    assert(openRes.rows[0].r.status === 'open', 'Reopened slot status is not open')
+    await db.query(`select public.close_slot($1)`, [slotToSkip])
+    return 'Skipped slot successfully reopened for Round 3 recovery'
   })
 
   await db.close()
