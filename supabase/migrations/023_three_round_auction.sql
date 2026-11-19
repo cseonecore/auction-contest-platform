@@ -1016,3 +1016,7 @@ $$;
 
 revoke all on function public.get_bidding_results() from public;
 grant execute on function public.get_bidding_results() to authenticated, service_role;
+
+-- Notify PostgREST to reload schema cache immediately
+notify pgrst, 'reload schema';
+

@@ -934,6 +934,12 @@ export function AdminAuctionRoom() {
 
   const requestSetRound = useCallback(
     (targetRound: 1 | 2 | 3) => {
+      // If session is already active in this round, simply filter the queue without re-triggering transition
+      if (currentRound === targetRound && sessionActive) {
+        setQueueRoundFilter(targetRound);
+        return;
+      }
+
       const labels: Record<number, string> = {
         1: "Round 1 (First Question Allocation)",
         2: "Round 2 (Second Question Allocation)",
@@ -947,6 +953,7 @@ export function AdminAuctionRoom() {
         run: async () => {
           const ok = await actions.setRound(targetRound);
           if (ok) {
+            setQueueRoundFilter(targetRound);
             refreshAll();
             void refreshLive();
           }
@@ -954,7 +961,7 @@ export function AdminAuctionRoom() {
         },
       });
     },
-    [actions, refreshAll, refreshLive]
+    [actions, refreshAll, refreshLive, currentRound, sessionActive]
   );
 
   const requestFinalizeEliminations = useCallback(() => {

@@ -56,11 +56,61 @@ async function call<T>(
 export const startAuction = (round: 1 | 2 | 3 = 1) =>
   call("start_auction", { p_round: round });
 
-export const setAuctionRound = (round: 1 | 2 | 3) =>
-  call("set_auction_round", { p_round: round });
+export const setAuctionRound = async (
+  round: 1 | 2 | 3
+): Promise<AdminActionResult> => {
+  // 1. Primary path: dedicated set_auction_round RPC (migration 023+)
+  const res = await call("set_auction_round", { p_round: round });
+  if (res.success) return res;
 
-export const finalizeRound3Eliminations = () =>
-  call("finalize_round_3_eliminations");
+  // 2. Check if the error is due to set_auction_round missing in Supabase schema cache
+  const isMissingRpc =
+    res.error &&
+    (res.error.includes("set_auction_round") ||
+      res.error.includes("schema cache") ||
+      res.error.includes("PGRST202"));
+
+  if (isMissingRpc) {
+    // 3. Fallback: try start_auction(p_round). In migration 023 start_auction also switches round,
+    // and if no session is active yet, it starts a session in the chosen round.
+    const startRes = await call("start_auction", { p_round: round });
+    if (startRes.success) {
+      const data = startRes.data as
+        | { already_started?: boolean; round?: number }
+        | undefined;
+      // If session was freshly started or round actually matches target
+      if (!data?.already_started || data?.round === round) {
+        return startRes;
+      }
+    }
+
+    return {
+      success: false,
+      error:
+        "Database function 'public.set_auction_round' is not installed in Supabase. Please apply migration 023 (or docs/production-deploy-021-023.sql) in your Supabase SQL Editor.",
+    };
+  }
+
+  return res;
+};
+
+export const finalizeRound3Eliminations = async (): Promise<AdminActionResult> => {
+  const res = await call("finalize_round_3_eliminations");
+  if (
+    !res.success &&
+    res.error &&
+    (res.error.includes("finalize_round_3_eliminations") ||
+      res.error.includes("schema cache") ||
+      res.error.includes("PGRST202"))
+  ) {
+    return {
+      success: false,
+      error:
+        "Database function 'public.finalize_round_3_eliminations' is not installed in Supabase. Please apply migration 023 (or docs/production-deploy-021-023.sql) in your Supabase SQL Editor.",
+    };
+  }
+  return res;
+};
 
 export const selectAuctionQuestion = (slotId: string) =>
   call("select_auction_question", { p_slot_id: slotId });
