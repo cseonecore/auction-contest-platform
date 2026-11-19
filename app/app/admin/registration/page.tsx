@@ -1141,7 +1141,7 @@ export default function AdminRegistrationPage() {
   const { user, role, signOut } = useAdminAuth();
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex flex-col font-sans">
+    <div className="min-h-screen bg-[#0d0d0d] text-white flex flex-col font-sans select-none">
       <AdminHeader
         userEmail={user?.email}
         role={role}

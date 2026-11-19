@@ -10,7 +10,10 @@
  *  - Starting/minimum bid points (required, default: 10 pts)
  *  - Topic description (optional/recommended)
  *  - Evaluation criterion (optional)
- *  - Number of pending slots to generate (default: 1)
+ *
+ * One problem statement = one auction item. The backend enforces this,
+ * so the form deliberately offers no slot quantity: creating a topic
+ * always adds exactly one item to the queue.
  */
 
 import React, { useState } from 'react';
@@ -36,7 +39,6 @@ export function AddTopicModal({
   const [startingBid, setStartingBid] = useState('10');
   const [description, setDescription] = useState('');
   const [criterion, setCriterion] = useState('');
-  const [slotsCount, setSlotsCount] = useState(1);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   if (!isOpen) return null;
@@ -72,7 +74,7 @@ export function AddTopicModal({
       starting_bid: parsedStartingBid,
       description: description.trim(),
       criterion: criterion.trim() || undefined,
-      slots_count: slotsCount,
+      slots_count: 1,
     });
 
     if (success) {
@@ -82,7 +84,6 @@ export function AddTopicModal({
       setStartingBid('10');
       setDescription('');
       setCriterion('');
-      setSlotsCount(1);
       setErrorMessage(null);
       onClose();
     }

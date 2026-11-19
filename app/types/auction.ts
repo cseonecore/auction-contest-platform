@@ -97,6 +97,13 @@ export interface SkipSlotResult {
 export type SlotStatus  = SlotRow['status']   // 'pending' | 'open' | 'sold' | 'skipped'
 export type AuctionRound = 1 | 2              // 1 = Easy (Round 1), 2 = Hard (Round 2)
 
+export type AuctionTimerStatus =
+  | "idle"
+  | "running"
+  | "paused"
+  | "expired"
+  | "completed";
+
 // ─────────────────────────────────────────────────────────────
 // UI / logic types
 // ─────────────────────────────────────────────────────────────

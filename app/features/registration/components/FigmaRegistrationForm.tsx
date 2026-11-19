@@ -263,8 +263,9 @@ export const FigmaRegistrationForm: React.FC = () => {
           Thank You For Registering
         </h1>
         <p className="text-xs sm:text-sm text-slate-500 font-normal mt-2.5 max-w-md mx-auto">
-          Your Team ID and Password will be sent shortly to your captain&apos;s{" "}
-          <span className="font-semibold text-slate-800">{successEmail}</span>
+          Your team is registered! You can log in directly using your{" "}
+          <span className="font-semibold text-slate-800">Team Name</span> and{" "}
+          <span className="font-semibold text-slate-800">Captain USN</span>.
         </p>
 
         <div className="mt-8">

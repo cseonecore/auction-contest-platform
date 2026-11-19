@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "test:sql": "node scripts/validate-migrations.mjs",
     "test:engine": "node scripts/test-auction-engine.mjs",
-    "test:all": "npm run test && npm run test:sql && npm run test:engine"
+    "test:bugfixes": "node scripts/test-bugfixes.mjs",
+    "test:all": "npm run test && npm run test:sql && npm run test:engine && npm run test:bugfixes"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

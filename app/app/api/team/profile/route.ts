@@ -1,29 +1,73 @@
 import { NextResponse } from "next/server";
 import { getDbClient } from "@/lib/supabaseServer";
+import { cookies } from "next/headers";
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const teamId = searchParams.get("id");
+    let teamId = searchParams.get("id");
     const teamName = searchParams.get("name");
 
+    // Fallback: check session cookie if query params are missing
     if (!teamId && !teamName) {
-      return NextResponse.json({ error: "Team ID or Name is required." }, { status: 400 });
+      const cookieStore = await cookies();
+      const cookieTeamId = cookieStore.get("b2b_team_id")?.value;
+      if (cookieTeamId) {
+        teamId = cookieTeamId;
+      }
+    }
+
+    if (!teamId && !teamName) {
+      return NextResponse.json(
+        { error: "Unauthenticated. Please log in first." },
+        { status: 401 }
+      );
     }
 
     const db = getDbClient();
 
-    // 1. Fetch Team
-    let teamQuery = db.from("teams").select("id, name, captain_id, locked, created_at");
+    // 1. Fetch Team (by ID or Name)
+    let team = null;
+
     if (teamId) {
-      teamQuery = teamQuery.eq("id", teamId);
-    } else if (teamName) {
-      teamQuery = teamQuery.ilike("name", teamName);
+      const { data, error } = await db
+        .from("teams")
+        .select("id, name, captain_id, locked, created_at")
+        .eq("id", teamId)
+        .maybeSingle();
+
+      if (error) {
+        console.error("[Profile API] Error fetching team by ID:", error);
+      }
+      team = data;
     }
 
-    const { data: team, error: teamErr } = await teamQuery.maybeSingle();
+    if (!team && teamName) {
+      const cleanTeamName = teamName.trim();
+      const { data, error } = await db
+        .from("teams")
+        .select("id, name, captain_id, locked, created_at")
+        .ilike("name", cleanTeamName)
+        .maybeSingle();
 
-    if (teamErr || !team) {
+      if (error) {
+        console.error("[Profile API] Error fetching team by name:", error);
+      }
+      team = data;
+
+      // Try compact name without spaces
+      if (!team) {
+        const compactName = cleanTeamName.replace(/\s+/g, "");
+        const { data: altTeam } = await db
+          .from("teams")
+          .select("id, name, captain_id, locked, created_at")
+          .ilike("name", compactName)
+          .maybeSingle();
+        if (altTeam) team = altTeam;
+      }
+    }
+
+    if (!team) {
       return NextResponse.json({ error: "Team not found." }, { status: 404 });
     }
 
@@ -48,35 +92,52 @@ export async function GET(request: Request) {
     // 4. Fetch Won Slots & Topics (Assigned Problems)
     const { data: wonSlots } = await db
       .from("slots")
-      .select("id, round, status, current_bid, topic_id, topics(id, title, description, level, criterion)")
+      .select(
+        "id, round, status, current_bid, topic_id, topics(id, title, description, level, criterion)"
+      )
       .eq("winner_team_id", team.id);
 
-    // 5. Fetch Auction Status (check if any slot is currently 'open')
-    const { data: openSlots } = await db
-      .from("slots")
-      .select("id")
-      .eq("status", "open")
-      .limit(1);
+    // 5. Fetch Auction Status
+    // "Live" means the participant can enter the arena right now:
+    // either an auction SESSION is active (Start → Stop cycles between
+    // sessions, so a restarted session is live again) or an individual
+    // item is open for bidding (the host may open bidding without a
+    // session). Checking only "some slot is open" left participants
+    // locked out of every restarted session between Stop and Open Slot.
+    const [activeSessionRes, openSlotsRes] = await Promise.all([
+      db.rpc("get_active_session"),
+      db.from("slots").select("id").eq("status", "open").limit(1),
+    ]);
 
-    const isAuctionLive = (openSlots && openSlots.length > 0) || false;
+    const activeSessions = activeSessionRes.data;
+    const hasActiveSession = Array.isArray(activeSessions) && activeSessions.length > 0;
+    const openSlots = openSlotsRes.data;
+    const hasOpenSlot = Boolean(openSlots && openSlots.length > 0);
 
-    // 6. Format members with USN, Branch, Semester, Phone
+    const isAuctionLive = hasActiveSession || hasOpenSlot;
+
+    // 6. Fetch Team's Latest Submission
+    const { data: latestSubmission } = await db
+      .from("submissions")
+      .select("id, repository_url, status, submitted_at")
+      .eq("team_id", team.id)
+      .order("submitted_at", { ascending: false })
+      .maybeSingle();
+
+    // 7. Format members with USN, Branch, Semester, Phone
     const formattedMembers = (members || []).map((m, index) => {
       const email = m.email || "";
       const usnMatch = email.match(/^([^@]+)@/);
       const usn = usnMatch ? usnMatch[1].toUpperCase() : `4MT24CS00${index + 1}`;
 
-      // Extract Branch from USN e.g. 4MT24CS001 -> CS -> CSE
       let branch = "CSE";
       if (usn.includes("CS")) branch = "CSE";
       else if (usn.includes("IS")) branch = "ISE";
       else if (usn.includes("EC")) branch = "ECE";
       else if (usn.includes("AI")) branch = "AIML";
 
-      // Extract Semester & Phone from college field if present
-      // Example: "MITE - Sem 5 (Ph: 9876543210)"
       let semester = "5";
-      let phone = "+91 98765 43210";
+      let phone = "+91 12345 67890";
 
       if (m.college) {
         const semMatch = m.college.match(/Sem\s*(\d+)/i);
@@ -100,7 +161,6 @@ export async function GET(request: Request) {
       };
     });
 
-    // Format Assigned Problems
     interface SlotRecord {
       id: string;
       round: number;
@@ -132,6 +192,7 @@ export async function GET(request: Request) {
         members: formattedMembers,
         assignedProblems,
         isAuctionLive,
+        submission: latestSubmission || null,
       },
     });
   } catch (err: unknown) {

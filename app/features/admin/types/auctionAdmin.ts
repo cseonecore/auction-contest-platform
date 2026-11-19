@@ -56,6 +56,11 @@ export interface AdminSlotWithDetails extends SlotRow {
   leader_team: Pick<TeamRow, 'id' | 'name'> | null;
   winner_team: Pick<TeamRow, 'id' | 'name'> | null;
   bid_count: number;
+  timer_status: AuctionTimerStatus | null;
+  /** Queue position of the slot inside its round (authoritative, DB column). */
+  question_number?: number | null;
+  /** Seconds frozen on the clock while the timer is paused. */
+  paused_remaining_seconds?: number | null;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -161,6 +166,7 @@ export interface ServiceResult<T> {
 
 export type SlotStatusFilter = 'all' | SlotStatus;
 export type SlotRoundFilter = 'all' | 1 | 2;
+export type AuctionTimerStatus = "idle" | "running" | "paused" | "expired" | "completed";
 
 export interface FetchBidsOptions {
   limit?: number;

@@ -32,6 +32,7 @@ import type {
   WalletRow,
   AuctionRealtimeHandlers,
   RealtimeSubscriptionStatus,
+  AuctionTimerStatus,
 } from '../types/auctionAdmin';
 
 // ─────────────────────────────────────────────────────────────
@@ -48,10 +49,13 @@ interface RawSlotQueryResult {
   leader_team_id: string | null;
   end_time: string | null;
   winner_team_id: string | null;
+  question_number?: number | null;
+  paused_remaining_seconds?: number | null;
   topic: TopicRow | null;
   leader_team: { id: string; name: string } | null;
   winner_team: { id: string; name: string } | null;
   bids: { count: number }[] | null;
+  timer_status: AuctionTimerStatus | null;
 }
 
 interface RawBidQueryResult {
@@ -134,6 +138,9 @@ export async function fetchAllSlotsWithDetails(): Promise<ServiceResult<AdminSlo
         leader_team_id,
         end_time,
         winner_team_id,
+        question_number,
+        timer_status,
+        paused_remaining_seconds,
         topic:topics (*),
         leader_team:teams!slots_leader_team_id_fkey (id, name),
         winner_team:teams!slots_winner_team_id_fkey (id, name),
@@ -168,6 +175,8 @@ export async function fetchAllSlotsWithDetails(): Promise<ServiceResult<AdminSlo
         leader_team_id: raw.leader_team_id,
         end_time: raw.end_time,
         winner_team_id: raw.winner_team_id,
+        question_number: raw.question_number ?? null,
+        paused_remaining_seconds: raw.paused_remaining_seconds ?? null,
         topic: raw.topic ?? {
           id: raw.topic_id,
           level: raw.round === 1 ? 'easy' : 'hard',
@@ -178,6 +187,7 @@ export async function fetchAllSlotsWithDetails(): Promise<ServiceResult<AdminSlo
         leader_team: raw.leader_team,
         winner_team: raw.winner_team,
         bid_count: bidCount,
+        timer_status: raw.timer_status ?? "idle",
       };
     });
 
@@ -255,6 +265,7 @@ export async function fetchSlotById(
       leader_team: raw.leader_team,
       winner_team: raw.winner_team,
       bid_count: bidCount,
+      timer_status: raw.timer_status ?? "idle",
     };
 
     return { success: true, data: slot };

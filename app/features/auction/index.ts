@@ -1,20 +1,35 @@
-export * from "./components/AuctionRoom"
-export * from "./components/AuctionHeader"
-export * from "./components/AuctionTimer"
-export * from "./components/AuctionSlotCard"
-export * from "./components/CurrentBidPanel"
-export * from "./components/BidControls"
-export * from "./components/BidHistory"
-export * from "./components/WalletBalance"
-export * from "./components/SlotQueue"
-export * from "./components/AdminAuctionControls"
+/**
+ * Bid2Build — Auction module public surface.
+ *
+ * One module, one timer, one source of truth. Everything the
+ * participant arena, the admin console and the projector share lives
+ * here.
+ */
 
-export * from "./hooks/useAuctionSession"
-export * from "./hooks/useSlot"
-export * from "./hooks/useBids"
-export * from "./hooks/useWallet"
+// ── Participant arena ────────────────────────────────────────────
+export * from "./components/ParticipantAuctionRoom";
+export * from "./components/ParticipantAuctionHeader";
+export * from "./components/ParticipantBiddingPanel";
+export * from "./components/BidConfirmationModal";
+export * from "./components/ContestRulesModal";
+export * from "./components/AuctionSoldModal";
+export * from "./components/LiveLeaderboardGrid";
+export * from "./components/LeaderboardCapsule";
 
-export * from "./utils/placeBid"
-export * from "./utils/adminActions"
-export * from "./utils/countdown"
+// ── Admin arena ──────────────────────────────────────────────────
+export * from "./components/AdminAuctionRoom";
 
+// ── Hooks ────────────────────────────────────────────────────────
+export * from "./hooks/useAuction";
+export * from "./hooks/useAuctionRealtime";
+export * from "./hooks/useAuctionTimer";
+
+// ── Services ─────────────────────────────────────────────────────
+export * from "./services/auction.service";
+
+// ── Types ────────────────────────────────────────────────────────
+export * from "./types/auction.types";
+
+// ── Utils ────────────────────────────────────────────────────────
+export * from "./utils/mascot";
+export * from "./utils/countdown";
