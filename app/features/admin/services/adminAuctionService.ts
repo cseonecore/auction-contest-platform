@@ -122,7 +122,7 @@ export const approveSubmission = (
   submissionId: string,
   score: number,
   notes?: string,
-  grantBonus = true
+  grantBonus = false
 ) =>
   call("approve_submission", {
     p_submission_id: submissionId,
@@ -136,6 +136,84 @@ export const grantBonusTime = (submissionId: string, reason?: string) =>
     p_submission_id: submissionId,
     p_reason: reason ?? null,
   });
+
+export const rejectSubmission = async (
+  submissionId: string,
+  reason?: string
+): Promise<AdminActionResult<{ success: boolean }>> => {
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token;
+    const res = await fetch("/api/auction/admin", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        action: "reject_solution",
+        submissionId,
+        reason,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || "Failed to reject submission" };
+    }
+    return { success: true, data };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Failed to reject submission";
+    return { success: false, error: msg };
+  }
+};
+
+export const reopenSubmission = async (
+  submissionId: string,
+  notes?: string
+): Promise<AdminActionResult<{ success: boolean }>> => {
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token;
+    const res = await fetch("/api/auction/admin", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        action: "reopen_solution",
+        submissionId,
+        notes,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || "Failed to reopen submission" };
+    }
+    return { success: true, data };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Failed to reopen submission";
+    return { success: false, error: msg };
+  }
+};
+
+export const fetchAdminSubmissions = async () => {
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token;
+    const res = await fetch("/api/submission?all=true", {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || "Failed to load submissions", submissions: [] };
+    }
+    return { success: true, submissions: data.submissions || [] };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Failed to load submissions";
+    return { success: false, error: msg, submissions: [] };
+  }
+};
 
 export const fetchBonusHistory = () => call("get_bonus_history");
 

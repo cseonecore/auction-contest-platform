@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useId, useCallback } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   X,
@@ -9,6 +10,7 @@ import {
   BookOpen,
   Send,
   Loader2,
+  ExternalLink,
 } from "lucide-react";
 import { B2BLogo } from "@/components/shared/B2BLogo";
 
@@ -26,16 +28,31 @@ interface Member {
 interface AssignedProblem {
   id: string;
   number: number;
+  round?: number;
   title: string;
   statement: string;
   description: string;
+  submission?: {
+    id: string;
+    repository_url?: string;
+    repo_url?: string;
+    live_url?: string | null;
+    status?: string;
+    submitted_at: string;
+    approved_at?: string | null;
+    judge_notes?: string | null;
+  } | null;
 }
 
 interface Submission {
   id: string;
-  repo_url: string;
+  repo_url?: string;
+  repository_url?: string;
   live_url?: string | null;
+  status?: string;
   submitted_at: string;
+  approved_at?: string | null;
+  judge_notes?: string | null;
 }
 
 interface TeamData {
@@ -60,18 +77,6 @@ export default function ProfilePage() {
   // Modal dialog states
   const [showAuctionNotStartedModal, setShowAuctionNotStartedModal] = useState(false);
   const [showRulesModal, setShowRulesModal] = useState(false);
-  const [showSubmitModal, setShowSubmitModal] = useState(false);
-
-  // Submit modal inputs
-  const [repoUrl, setRepoUrl] = useState("");
-  const [liveUrl, setLiveUrl] = useState("");
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [submitSuccess, setSubmitSuccess] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-
-  // IDs for accessibility
-  const repoInputId = useId();
-  const liveInputId = useId();
 
   // Load Team Profile
   const loadProfile = useCallback(
@@ -113,12 +118,6 @@ export default function ProfilePage() {
 
         if (res.ok && data.team) {
           setTeam(data.team);
-
-          // Pre-fill submit modal if previously submitted
-          if (data.team.submission) {
-            setRepoUrl(data.team.submission.repo_url || "");
-            setLiveUrl(data.team.submission.live_url || "");
-          }
         } else if (!silent) {
           setError(data.error || "Failed to load team profile.");
         }
@@ -178,56 +177,6 @@ export default function ProfilePage() {
       setShowAuctionNotStartedModal(true);
     } else {
       router.push("/auction");
-    }
-  };
-
-  const handleSubmitSolution = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!repoUrl.trim() || !team) return;
-
-    setSubmitting(true);
-    setSubmitError(null);
-
-    try {
-      const res = await fetch("/api/submission", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          teamId: team.id,
-          repoUrl: repoUrl.trim(),
-          liveUrl: liveUrl.trim() || undefined,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (res.ok && data.success) {
-        setSubmitSuccess(true);
-        // Update local team state to show submitted
-        setTeam((prev) =>
-          prev
-            ? {
-                ...prev,
-                submission: {
-                  id: "submitted",
-                  repo_url: repoUrl.trim(),
-                  live_url: liveUrl.trim() || null,
-                  submitted_at: new Date().toISOString(),
-                },
-              }
-            : prev
-        );
-        setTimeout(() => {
-          setShowSubmitModal(false);
-          setSubmitSuccess(false);
-        }, 2000);
-      } else {
-        setSubmitError(data.error || "Submission failed. Please try again.");
-      }
-    } catch {
-      setSubmitError("Network error. Please try again.");
-    } finally {
-      setSubmitting(false);
     }
   };
 
@@ -464,26 +413,62 @@ export default function ProfilePage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-3xl">
-              {team.assignedProblems.map((prob) => (
-                <div
-                  key={prob.id}
-                  className="bg-[#22242a] rounded-2xl p-5 border border-white/5 space-y-2 shadow-md"
-                >
-                  <h3 className="text-base font-bold text-white tracking-tight">
-                    {prob.title || `Problem ${prob.number}`}
-                  </h3>
-                  {prob.statement && (
-                    <p className="text-xs font-semibold text-slate-300">
-                      {prob.statement}
-                    </p>
-                  )}
-                  {prob.description && (
-                    <p className="text-xs text-slate-400 leading-relaxed">
-                      {prob.description}
-                    </p>
-                  )}
-                </div>
-              ))}
+              {team.assignedProblems.map((prob) => {
+                const subStatus = prob.submission?.status;
+                return (
+                  <div
+                    key={prob.id}
+                    className="bg-[#22242a] rounded-2xl p-5 border border-white/5 space-y-2.5 shadow-md flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="text-[10px] uppercase font-bold text-slate-500">
+                          {prob.round ? `Round ${prob.round}` : `Problem #${prob.number}`}
+                        </span>
+                        {subStatus && (
+                          <span
+                            className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full border ${
+                              subStatus === "approved"
+                                ? "border-emerald-500/40 text-emerald-300 bg-emerald-950/40"
+                                : subStatus === "rejected"
+                                ? "border-rose-500/40 text-rose-300 bg-rose-950/40"
+                                : "border-amber-500/40 text-amber-300 bg-amber-950/40"
+                            }`}
+                          >
+                            {subStatus}
+                          </span>
+                        )}
+                      </div>
+                      <h3 className="text-base font-bold text-white tracking-tight">
+                        {prob.title || `Problem ${prob.number}`}
+                      </h3>
+                      {prob.statement && (
+                        <p className="text-xs font-semibold text-slate-300 mt-1">
+                          {prob.statement}
+                        </p>
+                      )}
+                      {prob.description && (
+                        <p className="text-xs text-slate-400 leading-relaxed mt-1 line-clamp-3">
+                          {prob.description}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="pt-2 border-t border-white/5 flex items-center justify-between text-xs">
+                      <span className="text-slate-500 text-[11px]">
+                        {subStatus ? "Submission recorded" : "Pending solution"}
+                      </span>
+                      <Link
+                        href="/submit"
+                        className="text-[#fe5102] hover:text-[#ff7836] font-semibold text-[11px] flex items-center gap-1 transition-colors"
+                      >
+                        <span>{subStatus ? "View / Edit" : "Submit now"}</span>
+                        <span>&rarr;</span>
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>
@@ -491,36 +476,70 @@ export default function ProfilePage() {
         {/* Submission status display (if already submitted) */}
         {isSubmitted && team.submission && (
           <section className="pt-2">
-            <div className="bg-[#0f2a1a] border border-emerald-700/40 rounded-2xl p-5 max-w-xl space-y-2">
-              <div className="flex items-center gap-2 text-emerald-400">
-                <CheckCircle2 className="w-4 h-4" />
-                <span className="text-sm font-bold text-white">Solution Submitted</span>
+            <div className="bg-[#18191c] border border-white/10 rounded-2xl p-5 max-w-xl space-y-3 shadow-md">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-white">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span className="text-sm font-bold">Team Submission Status</span>
+                </div>
+                <span
+                  className={`text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-full border ${
+                    team.submission.status === "approved"
+                      ? "border-emerald-500/40 text-emerald-300 bg-emerald-950/40"
+                      : team.submission.status === "rejected"
+                      ? "border-rose-500/40 text-rose-300 bg-rose-950/40"
+                      : "border-amber-500/40 text-amber-300 bg-amber-950/40"
+                  }`}
+                >
+                  {team.submission.status || "Submitted"}
+                </span>
               </div>
-              <div className="text-xs space-y-1 text-slate-300">
-                <p>
-                  <span className="text-slate-400">Repository: </span>
-                  <a
-                    href={team.submission.repo_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[#fe5102] hover:underline font-mono break-all"
-                  >
-                    {team.submission.repo_url}
-                  </a>
-                </p>
+
+              <div className="text-xs space-y-1.5 text-slate-300 font-mono">
+                {(team.submission.repo_url || team.submission.repository_url) && (
+                  <p className="flex items-center gap-2 truncate">
+                    <span className="text-slate-500 font-sans">Repository:</span>
+                    <a
+                      href={team.submission.repo_url || team.submission.repository_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#fe5102] hover:underline flex items-center gap-1 truncate"
+                    >
+                      {team.submission.repo_url || team.submission.repository_url}
+                      <ExternalLink className="w-3 h-3 inline shrink-0" />
+                    </a>
+                  </p>
+                )}
                 {team.submission.live_url && (
-                  <p>
-                    <span className="text-slate-400">Live Demo: </span>
+                  <p className="flex items-center gap-2 truncate">
+                    <span className="text-slate-500 font-sans">Live Demo:</span>
                     <a
                       href={team.submission.live_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-[#fe5102] hover:underline font-mono break-all"
+                      className="text-[#fe5102] hover:underline flex items-center gap-1 truncate"
                     >
                       {team.submission.live_url}
+                      <ExternalLink className="w-3 h-3 inline shrink-0" />
                     </a>
                   </p>
                 )}
+                {team.submission.judge_notes && (
+                  <p className="font-sans text-[11px] text-amber-300/90 pt-1 border-t border-white/5">
+                    <span className="text-slate-500 font-bold">Judge Feedback: </span>
+                    {team.submission.judge_notes}
+                  </p>
+                )}
+              </div>
+
+              <div className="pt-2 flex justify-end">
+                <Link
+                  href="/submit"
+                  className="text-xs font-semibold text-[#fe5102] hover:text-[#ff7836] flex items-center gap-1 transition-colors"
+                >
+                  <span>Open Submission Portal</span>
+                  <span>&rarr;</span>
+                </Link>
               </div>
             </div>
           </section>
@@ -538,17 +557,13 @@ export default function ProfilePage() {
             Enter Auction
           </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setSubmitError(null);
-              setSubmitSuccess(false);
-              setShowSubmitModal(true);
-            }}
-            className="bg-[#fe5102] hover:bg-[#d94502] active:scale-95 text-white font-semibold text-xs sm:text-sm px-8 py-2.5 rounded-full transition-all shadow-md shadow-orange-500/25 cursor-pointer"
+          <Link
+            href="/submit"
+            className="bg-[#fe5102] hover:bg-[#d94502] active:scale-95 text-white font-semibold text-xs sm:text-sm px-8 py-2.5 rounded-full transition-all shadow-md shadow-orange-500/25 cursor-pointer inline-flex items-center gap-2"
           >
-            {isSubmitted ? "Update Submission" : "Submit Solution"}
-          </button>
+            <Send className="w-4 h-4" />
+            <span>{isSubmitted ? "Manage Submissions" : "Submit Solution"}</span>
+          </Link>
         </div>
       </div>
 
@@ -660,104 +675,6 @@ export default function ProfilePage() {
                 Close Rules
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================= */}
-      {/* MODAL 3: Submit Solution                                  */}
-      {/* ========================================================= */}
-      {showSubmitModal && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-          <div className="bg-[#22242a] border border-white/10 rounded-2xl p-6 sm:p-7 max-w-md w-full mx-auto text-left shadow-2xl relative">
-            <button
-              type="button"
-              onClick={() => setShowSubmitModal(false)}
-              className="absolute right-4 top-4 text-slate-400 hover:text-white transition-colors cursor-pointer p-1"
-              aria-label="Close modal"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="flex items-center gap-2 mb-2 text-[#fe5102]">
-              <Send className="w-5 h-5" />
-              <h2 className="text-base font-bold text-white">
-                {isSubmitted ? "Update Team Submission" : "Submit Team Solution"}
-              </h2>
-            </div>
-            <p className="text-xs text-slate-300 mb-4">
-              {isSubmitted
-                ? "Update your project links at any time before the contest ends."
-                : "Enter your project links before the contest ends to submit your solution for evaluation."}
-            </p>
-
-            <form onSubmit={handleSubmitSolution} className="space-y-3.5">
-              <div>
-                <label htmlFor={repoInputId} className="text-xs font-semibold text-slate-300 block mb-1">
-                  GitHub Repository URL <span className="text-red-400">*</span>
-                </label>
-                <input
-                  id={repoInputId}
-                  type="url"
-                  required
-                  placeholder="https://github.com/team/project"
-                  value={repoUrl}
-                  onChange={(e) => setRepoUrl(e.target.value)}
-                  className="w-full bg-[#18191c] border border-white/15 text-white text-xs px-3.5 py-2.5 rounded-xl outline-none focus:border-[#fe5102] transition-colors"
-                />
-              </div>
-
-              <div>
-                <label htmlFor={liveInputId} className="text-xs font-semibold text-slate-300 block mb-1">
-                  Live Deployment URL <span className="text-slate-500">(Optional)</span>
-                </label>
-                <input
-                  id={liveInputId}
-                  type="url"
-                  placeholder="https://project.vercel.app"
-                  value={liveUrl}
-                  onChange={(e) => setLiveUrl(e.target.value)}
-                  className="w-full bg-[#18191c] border border-white/15 text-white text-xs px-3.5 py-2.5 rounded-xl outline-none focus:border-[#fe5102] transition-colors"
-                />
-              </div>
-
-              {submitError && (
-                <div className="p-2.5 rounded-xl bg-red-950/80 text-red-300 border border-red-500/30 text-xs font-semibold">
-                  {submitError}
-                </div>
-              )}
-
-              {submitSuccess && (
-                <div className="p-2.5 rounded-xl bg-emerald-950/80 text-emerald-300 border border-emerald-500/30 text-xs font-semibold flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span>Solution submitted successfully!</span>
-                </div>
-              )}
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowSubmitModal(false)}
-                  className="px-4 py-2 rounded-full text-xs text-slate-300 hover:text-white transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="bg-[#fe5102] hover:bg-[#d94502] text-white font-bold text-xs px-6 py-2 rounded-full transition-all cursor-pointer shadow-md shadow-orange-500/25 flex items-center gap-1.5 disabled:opacity-60"
-                >
-                  {submitting ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Submitting...</span>
-                    </>
-                  ) : (
-                    <span>{isSubmitted ? "Update Submission" : "Confirm Submission"}</span>
-                  )}
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}

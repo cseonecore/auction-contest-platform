@@ -237,6 +237,7 @@ export type AllocationSortField = 'name' | 'balance' | 'spent' | 'status';
 export type AdminNavSection =
   | 'dashboard'
   | 'registration'
+  | 'submissions'
   | 'overview'
   | 'queue'
   | 'controller'

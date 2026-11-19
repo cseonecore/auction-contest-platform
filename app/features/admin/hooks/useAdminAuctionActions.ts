@@ -15,6 +15,8 @@ import {
   openBidding,
   pauseAuction,
   pauseAuctionTimer,
+  rejectSubmission,
+  reopenSubmission,
   resetAuction,
   resumeAuction,
   resumeAuctionTimer,
@@ -176,6 +178,20 @@ export function useAdminAuctionActions({
           "approve",
           () => approveSubmission(submissionId, score, notes, grantBonus),
           "Solution approved and scored."
+        ),
+
+      reject: (submissionId: string, reason?: string) =>
+        run(
+          "reject",
+          () => rejectSubmission(submissionId, reason),
+          "Submission marked rejected."
+        ),
+
+      reopen: (submissionId: string, notes?: string) =>
+        run(
+          "reopen",
+          () => reopenSubmission(submissionId, notes),
+          "Submission reopened for participant edits."
         ),
 
       createTopic: (values: {

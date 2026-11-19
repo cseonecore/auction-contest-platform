@@ -17,6 +17,28 @@ export async function GET(request: Request) {
       }
     }
 
+    // Fallback: check Bearer token if id/name and cookie are missing
+    if (!teamId && !teamName) {
+      const authHeader = request.headers.get("authorization") || request.headers.get("Authorization");
+      if (authHeader && authHeader.toLowerCase().startsWith("bearer ")) {
+        const token = authHeader.substring(7).trim();
+        if (token) {
+          const service = getDbClient();
+          const { data: authData } = await service.auth.getUser(token);
+          if (authData?.user) {
+            const { data: member } = await service
+              .from("members")
+              .select("team_id")
+              .eq("id", authData.user.id)
+              .maybeSingle();
+            if (member?.team_id) {
+              teamId = member.team_id;
+            }
+          }
+        }
+      }
+    }
+
     if (!teamId && !teamName) {
       return NextResponse.json(
         { error: "Unauthenticated. Please log in first." },
@@ -116,13 +138,23 @@ export async function GET(request: Request) {
 
     const isAuctionLive = hasActiveSession || hasOpenSlot;
 
-    // 6. Fetch Team's Latest Submission
-    const { data: latestSubmission } = await db
+    // 6. Fetch Team's Submissions (for all assigned problems)
+    const { data: teamSubmissions } = await db
       .from("submissions")
-      .select("id, repository_url, status, submitted_at")
+      .select("id, slot_id, repository_url, live_url, status, submitted_at, approved_at, judge_notes")
       .eq("team_id", team.id)
-      .order("submitted_at", { ascending: false })
-      .maybeSingle();
+      .order("submitted_at", { ascending: false });
+
+    const submissionBySlotId = new Map(
+      (teamSubmissions || []).map((s) => [s.slot_id, s])
+    );
+    const latestSubmissionRaw = teamSubmissions?.[0] ?? null;
+    const latestSubmission = latestSubmissionRaw
+      ? {
+          ...latestSubmissionRaw,
+          repo_url: latestSubmissionRaw.repository_url,
+        }
+      : null;
 
     // 7. Format members with USN, Branch, Semester, Phone
     const formattedMembers = (members || []).map((m, index) => {
@@ -173,12 +205,26 @@ export async function GET(request: Request) {
 
     const assignedProblems = (wonSlots || []).map((slot: SlotRecord, idx: number) => {
       const topic = Array.isArray(slot.topics) ? slot.topics[0] : slot.topics;
+      const sub = submissionBySlotId.get(slot.id);
       return {
         id: slot.id,
         number: idx + 1,
+        round: slot.round ?? 1,
         title: topic?.title || `Problem ${idx + 1}`,
         statement: topic?.title || "Problem statement",
         description: topic?.description || "Description in detail",
+        submission: sub
+          ? {
+              id: sub.id,
+              repository_url: sub.repository_url,
+              repo_url: sub.repository_url,
+              live_url: sub.live_url,
+              status: sub.status,
+              submitted_at: sub.submitted_at,
+              approved_at: sub.approved_at,
+              judge_notes: sub.judge_notes,
+            }
+          : null,
       };
     });
 
