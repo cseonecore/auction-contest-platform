@@ -96,7 +96,7 @@ export async function GET(request: Request) {
     // 2. Fetch Team Members
     const { data: members, error: memErr } = await db
       .from("members")
-      .select("id, name, email, college, created_at")
+      .select("id, name, email, college, phone, created_at")
       .eq("team_id", team.id)
       .order("created_at", { ascending: true });
 
@@ -182,6 +182,27 @@ export async function GET(request: Request) {
       }
       : null;
 
+    // Helper to format contact phone numbers consistently
+    const formatPhoneNumber = (rawPhone?: string | null): string => {
+      if (!rawPhone || typeof rawPhone !== "string") return "";
+      const trimmed = rawPhone.trim();
+      if (!trimmed) return "";
+
+      const digits = trimmed.replace(/\D/g, "");
+      if (digits.length === 10) {
+        return `+91 ${digits.slice(0, 5)} ${digits.slice(5)}`;
+      }
+      if (digits.length === 11 && digits.startsWith("0")) {
+        const local = digits.slice(1);
+        return `+91 ${local.slice(0, 5)} ${local.slice(5)}`;
+      }
+      if (digits.length === 12 && digits.startsWith("91")) {
+        const local = digits.slice(2);
+        return `+91 ${local.slice(0, 5)} ${local.slice(5)}`;
+      }
+      return trimmed.startsWith("+") ? trimmed : `+91 ${trimmed}`;
+    };
+
     // 7. Format members with USN, Branch, Semester, Phone
     const formattedMembers = (members || []).map((m, index) => {
       const email = m.email || "";
@@ -195,14 +216,20 @@ export async function GET(request: Request) {
       else if (usn.includes("AI")) branch = "AIML";
 
       let semester = "5";
-      let phone = "+91 12345 67890";
+      let phone = formatPhoneNumber(m.phone);
 
       if (m.college) {
         const semMatch = m.college.match(/Sem\s*(\d+)/i);
         if (semMatch) semester = semMatch[1];
 
-        const phoneMatch = m.college.match(/Ph:\s*([^\)]+)/i);
-        if (phoneMatch) phone = `+91 ${phoneMatch[1].trim()}`;
+        if (!phone) {
+          const phoneMatch =
+            m.college.match(/(?:Ph(?:one)?|Mob(?:ile)?|Contact):\s*([+0-9\s-]+)/i) ||
+            m.college.match(/Ph:\s*([^\)]+)/i);
+          if (phoneMatch) {
+            phone = formatPhoneNumber(phoneMatch[1]);
+          }
+        }
       }
 
       const isCaptain = team.captain_id ? m.id === team.captain_id : index === 0;
