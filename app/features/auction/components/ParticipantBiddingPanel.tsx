@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
-import { BidConfirmationModal } from "./BidConfirmationModal";
 import { validateBid } from "../utils/bid-validation";
+import { BID_PRESET_INCREMENTS, calculatePresetBid } from "../utils/bid-presets";
 
 interface ParticipantBiddingPanelProps {
   slotId: string | null;
@@ -27,6 +27,10 @@ interface ParticipantBiddingPanelProps {
   onBidSubmit: (amount: number) => Promise<{ success: boolean; error?: string }>;
 }
 
+type Feedback = { tone: "success" | "error"; text: string };
+
+const SUCCESS_VISIBLE_MS = 3500;
+
 export function ParticipantBiddingPanel({
   slotId: _slotId,
   slotStatus,
@@ -46,25 +50,9 @@ export function ParticipantBiddingPanel({
   sessionActive,
   onBidSubmit,
 }: ParticipantBiddingPanelProps) {
-  // Base required bid according to backend rules
-  const baseNextBid = currentBid === 0 ? minBid : currentBid + minRaise;
-
-  // Selected increment preset or custom total bid
-  const [selectedIncrement, setSelectedIncrement] = useState<number>(0);
-  const [customBidInput, setCustomBidInput] = useState<string>("");
-  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [feedbackError, setFeedbackError] = useState<string | null>(null);
-
-  // Proposed bid calculation
-  const parsedCustom = customBidInput.trim() !== "" ? parseInt(customBidInput.trim(), 10) : NaN;
-  const isCustom = !isNaN(parsedCustom) && parsedCustom > 0;
-  const proposedBid = isCustom ? parsedCustom : baseNextBid + selectedIncrement;
-
-  // Wallet check
-  const walletCapExceeded = proposedBid > walletBalance;
-
   // Validation — mirrors the rules enforced by place_bid() in PostgreSQL.
+  // The database remains the final authority; this only prevents avoidable
+  // round-trips and explains why a click cannot be accepted.
   const validation = validateBid({
     currentBid,
     minBid,
@@ -82,189 +70,238 @@ export function ParticipantBiddingPanel({
     sessionActive,
   });
 
-  const isValidBid =
-    validation.canBid &&
-    proposedBid >= validation.minNextBid &&
-    !walletCapExceeded;
+  const minNextBid = validation.minNextBid;
 
-  const getDisabledReason = (): string | null => {
-    if (!validation.canBid) return validation.reason ?? null;
-    if (proposedBid < validation.minNextBid) {
-      return `The minimum bid is ${validation.minNextBid} points.`;
+  const [customValue, setCustomValue] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  /** Which preset is currently in flight (null = custom/empty). */
+  const [pendingPreset, setPendingPreset] = useState<number | null>(null);
+  const [feedback, setFeedback] = useState<Feedback | null>(null);
+
+  // A ref is the synchronous duplicate-submission guard: two clicks can
+  // land before React re-renders the disabled button state.
+  const submittingRef = useRef(false);
+
+  useEffect(() => {
+    if (feedback?.tone !== "success") return;
+    const timer = setTimeout(() => setFeedback(null), SUCCESS_VISIBLE_MS);
+    return () => clearTimeout(timer);
+  }, [feedback]);
+
+  const parsedCustom = customValue.trim() === "" ? NaN : Number(customValue);
+  const customBid = Number.isFinite(parsedCustom) ? Math.floor(parsedCustom) : NaN;
+  const customHint =
+    customValue.trim() === ""
+      ? null
+      : !Number.isFinite(customBid) || customBid <= 0
+        ? "Enter a positive whole bid amount."
+        : customBid < minNextBid
+          ? `The minimum bid is ${minNextBid} points.`
+          : customBid > walletBalance
+            ? `Insufficient balance — your wallet has ${walletBalance} coins.`
+            : null;
+
+  /**
+   * One click / one submit. The amount goes straight to the existing
+   * `place_bid()` RPC; there is no confirmation step.
+   */
+  const submitBid = async (rawAmount: number, preset: number | null) => {
+    if (submittingRef.current) return;
+
+    if (!validation.canBid) {
+      setFeedback({
+        tone: "error",
+        text: validation.reason ?? "Bidding is not available right now.",
+      });
+      return;
     }
-    if (walletCapExceeded) {
-      return `Insufficient balance — your wallet has ${walletBalance} coins.`;
+
+    const amount = Number.isFinite(rawAmount) ? Math.floor(rawAmount) : NaN;
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setFeedback({ tone: "error", text: "Enter a positive whole bid amount." });
+      return;
     }
-    return null;
-  };
-
-  const disabledReason = getDisabledReason();
-
-  const handleIncrementClick = (inc: number) => {
-    setFeedbackError(null);
-    setCustomBidInput(""); // Clear custom input when using presets
-    if (selectedIncrement === inc) {
-      // Toggle off
-      setSelectedIncrement(0);
-    } else {
-      setSelectedIncrement(inc);
+    if (amount < minNextBid) {
+      setFeedback({
+        tone: "error",
+        text: `Bid too low — the minimum next bid is ${minNextBid} points.`,
+      });
+      return;
     }
-  };
+    if (amount > walletBalance) {
+      setFeedback({
+        tone: "error",
+        text: `Insufficient balance — your wallet has ${walletBalance} coins.`,
+      });
+      return;
+    }
 
-  const handleCustomBidChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFeedbackError(null);
-    setSelectedIncrement(0); // Clear preset when typing custom bid
-    setCustomBidInput(e.target.value);
-  };
-
-  const handleOpenConfirm = () => {
-    if (!isValidBid) return;
-    setFeedbackError(null);
-    setIsConfirmOpen(true);
-  };
-
-  const handleExecuteBid = async () => {
+    submittingRef.current = true;
     setIsSubmitting(true);
-    setFeedbackError(null);
+    setPendingPreset(preset);
+    setFeedback(null);
+
     try {
-      const res = await onBidSubmit(proposedBid);
-      if (res.success) {
-        setIsConfirmOpen(false);
-        setSelectedIncrement(0);
-        setCustomBidInput("");
+      const result = await onBidSubmit(amount);
+      if (result.success) {
+        setFeedback({
+          tone: "success",
+          text: `Bid of ${amount} points accepted.`,
+        });
+        setCustomValue("");
       } else {
-        setFeedbackError(res.error || "Failed to place bid. Please try again.");
+        setFeedback({
+          tone: "error",
+          text: result.error || "Failed to place bid. Please try again.",
+        });
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Network error";
-      setFeedbackError(message);
+      setFeedback({
+        tone: "error",
+        text: err instanceof Error ? err.message : "Network error",
+      });
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
+      setPendingPreset(null);
     }
   };
+
+  const handlePresetClick = (increment: number) => {
+    void submitBid(calculatePresetBid(minNextBid, increment), increment);
+  };
+
+  const handleCustomSubmit = () => {
+    void submitBid(customBid, null);
+  };
+
+  const actionsDisabled = !validation.canBid || isSubmitting;
 
   return (
     <div className="w-full select-none">
-      {/* 2x2 Large Rounded Square Buttons: +20, +15, +10, +5 */}
+      {/* 2x2 preset buttons — one click places the bid immediately */}
       <div className="grid grid-cols-2 gap-3 sm:gap-3.5">
-        {[
-          { label: "+20", value: 20 },
-          { label: "+15", value: 15 },
-          { label: "+10", value: 10 },
-          { label: "+5", value: 5 },
-        ].map(({ label, value }) => {
-          const isSelected = !isCustom && selectedIncrement === value;
+        {BID_PRESET_INCREMENTS.map((increment) => {
+          const amount = calculatePresetBid(minNextBid, increment);
+          const pending = pendingPreset === increment;
+          const affordable = amount <= walletBalance;
+          const blockedReason = !validation.canBid
+            ? validation.reason
+            : !affordable
+              ? `Insufficient balance — this bid needs ${amount} points.`
+              : null;
           return (
             <button
-              key={label}
+              key={increment}
               type="button"
-              disabled={!validation.canBid || baseNextBid + value > walletBalance}
-              onClick={() => handleIncrementClick(value)}
-              className={`h-20 sm:h-24 rounded-2xl flex items-center justify-center font-black text-2xl sm:text-3xl transition-all duration-150 cursor-pointer shadow-lg disabled:opacity-40 disabled:cursor-not-allowed ${
-                isSelected
-                  ? "bg-[#fe5102] text-white ring-4 ring-[#fe5102]/30 scale-[0.98]"
-                  : "bg-[#33353b] hover:bg-[#3d3f47] text-white active:scale-95 border border-zinc-700/60"
-              }`}
+              disabled={actionsDisabled || !affordable}
+              onClick={() => handlePresetClick(increment)}
+              title={blockedReason ?? `Place a bid of ${amount} points`}
+              className="h-24 sm:h-28 rounded-2xl flex flex-col items-center justify-center font-black transition-all duration-150 cursor-pointer shadow-lg disabled:opacity-40 disabled:cursor-not-allowed bg-[#33353b] hover:bg-[#3d3f47] text-white active:scale-95 border border-zinc-700/60"
             >
-              {label}
+              {pending ? (
+                <Loader2 className="w-8 h-8 animate-spin" />
+              ) : (
+                <span className="text-3xl sm:text-4xl leading-none">+{increment}</span>
+              )}
+              <span className="mt-1.5 text-[10px] font-bold uppercase tracking-wider text-white/55">
+                Bid {amount}
+              </span>
             </button>
           );
         })}
       </div>
 
-      {/* Custom Total Bid Input */}
-      <div className="mt-3">
-        <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
-          Or Enter Custom Total Bid
-        </label>
-        <div className="relative">
-          <input
-            type="number"
-            min={baseNextBid}
-            max={walletBalance}
-            step={1}
-            value={customBidInput}
-            onChange={handleCustomBidChange}
-            disabled={!validation.canBid}
-            placeholder={`Minimum ${baseNextBid} coins`}
-            className="w-full px-4 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900/90 text-white font-mono font-bold text-sm focus:outline-none focus:ring-2 focus:ring-[#fe5102] placeholder:text-zinc-600 disabled:opacity-40 disabled:cursor-not-allowed"
-          />
-          <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-mono font-semibold text-zinc-500">
-            COINS
-          </span>
-        </div>
-      </div>
-
-      {/* Bid Calculation Summary Bar */}
+      {/* Compact bid context (wallet is used for affordance only; the
+          live leaderboards never show balances) */}
       <div className="mt-3.5 p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 text-xs flex items-center justify-between text-zinc-300">
         <div>
           <span className="text-zinc-500 block text-[10px] uppercase font-bold tracking-wider">
-            Minimum Next Bid
+            Current Highest
           </span>
-          <span className="font-bold text-white font-mono">{baseNextBid} coins</span>
+          <span className="font-bold text-white font-mono">{currentBid} pts</span>
         </div>
 
         <div className="text-center">
           <span className="text-zinc-500 block text-[10px] uppercase font-bold tracking-wider">
-            Selected Raise
+            Minimum Next
           </span>
-          <span className="font-bold text-[#fe5102] font-mono">
-            {isCustom ? "Custom" : selectedIncrement > 0 ? `+${selectedIncrement}` : "Standard (+5)"}
-          </span>
+          <span className="font-bold text-[#fe5102] font-mono">{minNextBid} pts</span>
         </div>
 
         <div className="text-right">
           <span className="text-zinc-500 block text-[10px] uppercase font-bold tracking-wider">
-            Proposed Bid
+            Your Balance
           </span>
           <span className="font-black text-emerald-400 text-sm sm:text-base font-mono">
-            {proposedBid} coins
+            {walletBalance} pts
           </span>
         </div>
       </div>
 
-      {/* Feedback error alert if any */}
-      {feedbackError && (
-        <div className="mt-2.5 p-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs text-center font-medium">
-          {feedbackError}
-        </div>
-      )}
-
-      {/* Place Bid Action Button */}
-      <div className="mt-3">
+      {/* Custom total bid — immediately submitted via the small button */}
+      <div className="mt-3 flex items-stretch gap-2">
+        <input
+          type="number"
+          inputMode="numeric"
+          min={minNextBid}
+          step={1}
+          value={customValue}
+          onChange={(event) => {
+            setCustomValue(event.target.value);
+            if (feedback?.tone === "error") setFeedback(null);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              handleCustomSubmit();
+            }
+          }}
+          disabled={actionsDisabled}
+          placeholder={`Custom total (min ${minNextBid})`}
+          aria-label="Custom bid amount"
+          className="min-w-0 flex-1 rounded-xl border border-zinc-700/70 bg-zinc-900/90 px-3.5 py-3 text-sm font-bold text-white placeholder:text-zinc-500 font-mono focus:outline-none focus:ring-2 focus:ring-[#fe5102]/60 disabled:opacity-50"
+        />
         <button
           type="button"
-          disabled={!isValidBid || isSubmitting}
-          onClick={handleOpenConfirm}
-          className={`w-full py-3.5 px-4 rounded-xl font-black text-sm tracking-wide shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed ${
-            isValidBid
-              ? "bg-[#fe5102] hover:bg-[#d94502] active:scale-[0.99] text-white shadow-orange-500/25"
-              : "bg-zinc-800 text-zinc-500 border border-zinc-700/40"
-          }`}
+          onClick={handleCustomSubmit}
+          disabled={actionsDisabled}
+          className="shrink-0 px-4 py-3 rounded-xl bg-[#fe5102] hover:bg-[#d94502] active:scale-[0.99] text-white font-black text-xs sm:text-sm tracking-wide shadow-lg shadow-orange-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500 disabled:shadow-none"
         >
-          {isSubmitting ? (
+          {isSubmitting && pendingPreset === null ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
-              <span>Placing Bid...</span>
+              <span>Placing...</span>
             </>
           ) : (
-            <span>
-              {disabledReason ? disabledReason : `Place Bid • ${proposedBid} Coins`}
-            </span>
+            <span>Place Bid</span>
           )}
         </button>
       </div>
 
-      {/* Confirmation Dialog */}
-      <BidConfirmationModal
-        isOpen={isConfirmOpen}
-        onClose={() => setIsConfirmOpen(false)}
-        onConfirm={handleExecuteBid}
-        currentHighestBid={currentBid}
-        proposedBid={proposedBid}
-        currentBalance={walletBalance}
-        isSubmitting={isSubmitting}
-      />
+      {customHint && !feedback && (
+        <p className="mt-2 text-[11px] font-semibold text-amber-300">{customHint}</p>
+      )}
+
+      {/* Concise success / error notification */}
+      {feedback ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`mt-2.5 p-2.5 rounded-xl border text-xs text-center font-semibold ${
+            feedback.tone === "success"
+              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+              : "bg-red-500/10 border-red-500/30 text-red-300"
+          }`}
+        >
+          {feedback.text}
+        </div>
+      ) : !validation.canBid && validation.reason ? (
+        <div className="mt-2.5 p-2.5 rounded-xl border border-amber-500/25 bg-amber-500/10 text-amber-200 text-xs text-center font-medium">
+          {validation.reason}
+        </div>
+      ) : null}
     </div>
   );
 }

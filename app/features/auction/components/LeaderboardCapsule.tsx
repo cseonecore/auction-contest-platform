@@ -7,8 +7,9 @@ import { getMascotSrc } from "../utils/mascot";
 export interface LeaderboardTeam {
   id: string;
   name: string;
-  balance?: number;
+  /** Highest accepted bid in the current live auction (not a wallet). */
   currentBid?: number;
+  balance?: number;
   highestBid?: number;
   winningBid?: number;
   totalSpent?: number;
@@ -25,6 +26,10 @@ interface LeaderboardCapsuleProps {
   rank: number;
   totalTeams?: number;
   isCurrentTeam?: boolean;
+  /** The authoritative `active_slot.leader_team_id`. */
+  isLeading?: boolean;
+  /** Larger text/padding for the auditorium projector. */
+  variant?: "default" | "projector";
 }
 
 export function LeaderboardCapsule({
@@ -32,7 +37,17 @@ export function LeaderboardCapsule({
   rank,
   totalTeams = 20,
   isCurrentTeam = false,
+  isLeading = false,
+  variant = "default",
 }: LeaderboardCapsuleProps) {
+  // Live auction boards pass `currentBid` (even when it is 0), so the
+  // displayed amount is always the actual bid — never a wallet balance.
+  // The older fallbacks are kept for non-live consumers of this capsule.
+  const bidValue = team.currentBid ?? team.highestBid ?? team.winningBid;
+  const hasBidValue = bidValue !== undefined && bidValue !== null;
+  const leading = isLeading && !team.eliminated && (bidValue ?? 0) > 0;
+  const isProjector = variant === "projector";
+
   // Determine rank color styling strictly matching contest visual palette
   const getRankStyle = () => {
     // Eliminated teams: deep dark red, dimmed
@@ -77,65 +92,94 @@ export function LeaderboardCapsule({
 
   const mascotSrc = getMascotSrc(team.id || team.name, team.characterIndex || rank);
 
-  // Monetary value determination
-  const hasLiveBid = Boolean(team.currentBid && team.currentBid > 0);
-  const totalSpent = team.totalSpent ?? (team.balance != null ? Math.max(0, 100 - team.balance) : 0);
+  // Monetary value determination (fallback path for non-live consumers).
+  const totalSpent =
+    team.totalSpent ?? (team.balance != null ? Math.max(0, 100 - team.balance) : 0);
   const winsCount = team.winsCount ?? team.stat ?? 0;
 
-  let displayAmount: number;
-  let amountLabel: string;
+  const displayAmount = hasBidValue
+    ? Math.max(0, bidValue as number)
+    : totalSpent > 0
+      ? totalSpent
+      : (team.balance ?? 100);
+  const amountLabel = hasBidValue
+    ? "Highest Bid"
+    : totalSpent > 0
+      ? "Total Spent"
+      : "Balance";
 
-  if (hasLiveBid) {
-    displayAmount = team.currentBid!;
-    amountLabel = "Highest Bid";
-  } else if (totalSpent > 0) {
-    displayAmount = totalSpent;
-    amountLabel = "Total Spent";
-  } else {
-    displayAmount = team.balance ?? 100;
-    amountLabel = "Balance";
-  }
+  const highlightClass = leading
+    ? "ring-2 ring-emerald-300 ring-offset-2 ring-offset-zinc-950 shadow-lg shadow-emerald-950/30"
+    : isCurrentTeam
+      ? "ring-2 ring-[#ff5500] ring-offset-2 ring-offset-zinc-950"
+      : "";
 
   return (
     <div
-      className={`relative rounded-full py-2 px-3 sm:px-3.5 flex items-center justify-between shadow-md border transition-all duration-200 select-none ${getRankStyle()} ${
-        isCurrentTeam ? "ring-2 ring-[#ff5500] ring-offset-2 ring-offset-zinc-950" : ""
+      className={`relative rounded-full flex items-center justify-between shadow-md border transition-all duration-200 select-none ${getRankStyle()} ${highlightClass} ${
+        isProjector ? "py-3 px-4 sm:px-5" : "py-2 px-3 sm:px-3.5"
       }`}
     >
       {/* Left Avatar */}
-      <div className="w-10 h-10 rounded-full bg-white/10 p-0.5 overflow-hidden shrink-0 flex items-center justify-center border border-white/20">
+      <div
+        className={`rounded-full bg-white/10 p-0.5 overflow-hidden shrink-0 flex items-center justify-center border border-white/20 ${
+          isProjector ? "w-12 h-12" : "w-10 h-10"
+        }`}
+      >
         <Image
           src={mascotSrc}
           alt={team.name}
-          width={36}
-          height={36}
+          width={isProjector ? 44 : 36}
+          height={isProjector ? 44 : 36}
           className="object-contain"
         />
       </div>
 
-      {/* Right Content: Team Name, Wins Badge, Monetary Value */}
-      <div className="flex-1 ml-3 text-left overflow-hidden">
-        <div className="text-[11px] font-semibold text-white/90 truncate leading-tight flex items-center justify-between gap-1">
+      {/* Right Content: Team Name, badges and actual bid amount */}
+      <div className={`flex-1 text-left overflow-hidden ${isProjector ? "ml-4" : "ml-3"}`}>
+        <div
+          className={`font-semibold text-white/90 truncate leading-tight flex items-center gap-1.5 ${
+            isProjector ? "text-sm" : "text-[11px]"
+          }`}
+        >
           <span className="truncate">{team.name}</span>
-          <div className="flex items-center gap-1 shrink-0">
-            {winsCount > 0 && (
-              <span className="text-[9px] bg-amber-400/30 text-amber-200 border border-amber-400/40 px-1 py-0.2 rounded-xs font-mono font-bold">
-                {winsCount} win{winsCount > 1 ? "s" : ""}
-              </span>
-            )}
-            {isCurrentTeam && (
-              <span className="text-[9px] bg-white/20 px-1 py-0.2 rounded-xs uppercase tracking-wider font-bold">
-                You
-              </span>
-            )}
-          </div>
+          {leading && (
+            <span
+              className={`shrink-0 rounded-full bg-white/25 font-black uppercase tracking-wider text-white ${
+                isProjector ? "text-[10px] px-2 py-0.5" : "text-[8px] px-1.5 py-0.5"
+              }`}
+            >
+              Leading
+            </span>
+          )}
+          {winsCount > 0 && (
+            <span className="shrink-0 text-[9px] bg-amber-400/30 text-amber-200 border border-amber-400/40 px-1 py-0.2 rounded-xs font-mono font-bold">
+              {winsCount} win{winsCount > 1 ? "s" : ""}
+            </span>
+          )}
+          {isCurrentTeam && (
+            <span className="shrink-0 text-[9px] bg-white/20 px-1 py-0.2 rounded-xs uppercase tracking-wider font-bold">
+              You
+            </span>
+          )}
         </div>
 
-        <div className="flex items-baseline justify-between gap-1 mt-0.5">
-          <div className="text-xl sm:text-2xl font-black text-white leading-tight font-mono tracking-tight">
-            {displayAmount} <span className="text-[10px] font-bold text-white/70">PTS</span>
+        <div className="mt-0.5 flex items-baseline justify-between gap-1">
+          <div
+            className={`font-black text-white leading-tight font-sans tracking-tight ${
+              isProjector ? "text-3xl xl:text-4xl" : "text-xl sm:text-2xl"
+            }`}
+          >
+            {displayAmount}{" "}
+            <span
+              className={`font-bold text-white/60 ${
+                isProjector ? "text-base" : "text-[10px]"
+              }`}
+            >
+              pts
+            </span>
           </div>
-          <span className="text-[9px] font-semibold text-white/70 uppercase tracking-wider shrink-0">
+          <span className="shrink-0 text-[9px] font-semibold text-white/70 uppercase tracking-wider">
             {amountLabel}
           </span>
         </div>

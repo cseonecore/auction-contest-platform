@@ -2,26 +2,32 @@
 
 import React from "react";
 import { LeaderboardCapsule, LeaderboardTeam } from "./LeaderboardCapsule";
+import { rankTeamsByBid } from "../utils/leaderboard";
 
 interface LiveLeaderboardGridProps {
   teams: LeaderboardTeam[];
   currentTeamId?: string | null;
+  /** Authoritative leader from the live item (`leader_team_id`). */
+  leaderTeamId?: string | null;
   loading?: boolean;
 }
 
 export function LiveLeaderboardGrid({
   teams,
   currentTeamId,
+  leaderTeamId = null,
   loading = false,
 }: LiveLeaderboardGridProps) {
-  // Sort teams defensively by current bid (descending), then balance, then name
-  const sortedTeams = [...teams].sort((a, b) => {
-    const bidDiff = (b.currentBid ?? 0) - (a.currentBid ?? 0);
-    if (bidDiff !== 0) return bidDiff;
-    const balDiff = (b.balance ?? 0) - (a.balance ?? 0);
-    if (balDiff !== 0) return balDiff;
-    return a.name.localeCompare(b.name);
-  });
+  // Shared ranking: highest accepted bid first, deterministic tie-break.
+  // Wallet balance never influences the live leaderboard order.
+  const rankedTeams = rankTeamsByBid(
+    teams.map((team) => ({
+      ...team,
+      currentBid:
+        team.currentBid ?? team.highestBid ?? team.winningBid ?? 0,
+    })),
+    { leaderTeamId }
+  );
 
   return (
     <div className="w-full">
@@ -31,7 +37,7 @@ export function LiveLeaderboardGrid({
           Lead board
         </h3>
         <span className="text-xs text-zinc-400 font-medium">
-          {sortedTeams.length} Teams
+          {rankedTeams.length} Teams
         </span>
       </div>
 
@@ -44,19 +50,20 @@ export function LiveLeaderboardGrid({
             />
           ))}
         </div>
-      ) : sortedTeams.length === 0 ? (
+      ) : rankedTeams.length === 0 ? (
         <div className="p-8 text-center rounded-2xl bg-zinc-900/50 border border-zinc-800 text-zinc-400 text-sm">
           No teams registered yet.
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2.5 sm:gap-3">
-          {sortedTeams.map((team, idx) => (
+          {rankedTeams.map((team) => (
             <LeaderboardCapsule
-              key={team.id || `team-${idx}`}
+              key={team.id}
               team={team}
-              rank={idx + 1}
-              totalTeams={sortedTeams.length}
+              rank={team.rank}
+              totalTeams={rankedTeams.length}
               isCurrentTeam={!!currentTeamId && team.id === currentTeamId}
+              isLeading={team.isLeading}
             />
           ))}
         </div>

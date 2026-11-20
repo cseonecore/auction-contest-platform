@@ -394,6 +394,7 @@ export function ParticipantAuctionRoom() {
               <LiveLeaderboardGrid
                 teams={teams}
                 currentTeamId={identity.teamId}
+                leaderTeamId={activeSlot?.leader_team_id ?? null}
                 loading={loading}
               />
             </div>

@@ -12,13 +12,12 @@
  * Opens from the admin page in a new browser tab.
  */
 
-import React, { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import React, { useMemo } from "react";
 import { useProjectorAuction } from "@/features/projector/auction/hooks/useProjectorAuction";
 import { useAuctionTimer } from "@/features/auction/hooks/useAuctionTimer";
 import { LeaderboardCapsule } from "@/features/auction/components/LeaderboardCapsule";
+import { rankTeamsByBid } from "@/features/auction/utils/leaderboard";
 import { B2BLogo } from "@/components/shared/B2BLogo";
-import type { LiveAuctionState } from "@/features/auction/types/auction.types";
 
 /** Formats remaining seconds as "00m 20s". */
 function formatClock(seconds: number): string {
@@ -50,63 +49,6 @@ function splitBrief(description: string | null | undefined): {
   const brief = text.slice(0, end).trim();
   const detail = text.slice(end).trim();
   return detail ? { brief, detail } : { brief, detail: "" };
-}
-
-/**
- * Questions won per team, replayed from the publicly readable
- * `auction_events` stream (RLS policy "Public view auction events").
- *
- * The slots table itself is not readable by the anonymous projector
- * client in the deployed database, but every sale emits an
- * `auction_finalized` event carrying the winning team, and a full
- * auction reset re-emits `pending` status events for every slot — so
- * replaying those events in chronological order yields exactly the
- * same per-team win counts the slots table holds.
- *
- * Re-fetched whenever the authoritative state syncs (heartbeat,
- * realtime events) — the filtered query is small and cheap.
- */
-function usePublicWins(state: LiveAuctionState) {
-  const [wins, setWins] = useState<Map<string, number>>(() => new Map());
-  const syncedAt = state.server_time;
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      const { data, error } = await supabase
-        .from("auction_events")
-        .select("event_type, slot_id, team_id, payload, server_timestamp")
-        .or("event_type.eq.auction_finalized,payload->>status.eq.pending")
-        .order("server_timestamp", { ascending: true });
-      if (cancelled || error || !data) return;
-
-      // Chronological replay: latest status per slot decides.
-      const winnerBySlot = new Map<string, string>();
-      for (const row of data as Array<{
-        event_type: string;
-        slot_id: string | null;
-        team_id: string | null;
-        payload: Record<string, unknown> | null;
-      }>) {
-        if (row.payload?.status === "pending") {
-          winnerBySlot.delete(row.slot_id as string);
-        } else if (row.event_type === "auction_finalized" && row.team_id && row.slot_id) {
-          winnerBySlot.set(row.slot_id, row.team_id);
-        }
-      }
-
-      const counts = new Map<string, number>();
-      for (const teamId of winnerBySlot.values()) {
-        counts.set(teamId, (counts.get(teamId) ?? 0) + 1);
-      }
-      setWins(counts);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [syncedAt]);
-
-  return wins;
 }
 
 export default function ProjectorAuctionPage() {
@@ -141,22 +83,22 @@ export default function ProjectorAuctionPage() {
         ? "Time expired"
         : `Time Left: ${formatClock(countdown.secondsLeft)}`;
 
-  // ── Leaderboard: questions won per team, descending ─────────
-  const winsByTeam = usePublicWins(state);
-
+  // ── Leaderboard: highest accepted bid in the live item ───────
+  // `state.teams[].current_bid` is the authoritative highest bid each
+  // team placed on the item in play. The same shared utility ranks all
+  // three surfaces, so the projector can never disagree with the arena.
   const boardRows = useMemo(() => {
-    return state.teams
-      .map((t, i) => ({
+    return rankTeamsByBid(
+      state.teams.map((t, i) => ({
         id: t.id,
         name: t.name,
-        balance: t.balance,
         currentBid: t.current_bid,
-        stat: winsByTeam.get(t.id) ?? 0,
         eliminated: t.eliminated,
         characterIndex: (i % 10) + 1,
-      }))
-      .sort((a, b) => b.stat - a.stat || b.balance - a.balance || a.name.localeCompare(b.name));
-  }, [state.teams, winsByTeam]);
+      })),
+      { leaderTeamId: activeSlot?.leader_team_id ?? null }
+    );
+  }, [state.teams, activeSlot?.leader_team_id]);
 
   const pillTone = !isLive
     ? "bg-zinc-700 text-zinc-200"
@@ -274,12 +216,14 @@ export default function ProjectorAuctionPage() {
           ) : (
             <div className="relative">
               <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
-                {boardRows.map((team, rank) => (
+                {boardRows.map((team) => (
                   <LeaderboardCapsule
                     key={team.id}
                     team={team}
-                    rank={rank + 1}
+                    rank={team.rank}
                     totalTeams={boardRows.length}
+                    isLeading={team.isLeading}
+                    variant="projector"
                   />
                 ))}
               </div>

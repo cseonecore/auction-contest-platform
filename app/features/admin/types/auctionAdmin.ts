@@ -283,6 +283,11 @@ export interface BiddingResultTeam {
   total_base_dev_seconds: number;
   total_bonus_dev_seconds: number;
   total_dev_seconds: number;
+  /** True when the team acquired the 2-question qualification target. */
+  qualified?: boolean;
+  /** True when the team is currently eliminated. */
+  eliminated?: boolean;
+  elimination_reason?: string | null;
 }
 
 export interface UseAdminAuctionOptions {

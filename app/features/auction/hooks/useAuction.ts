@@ -82,6 +82,10 @@ export function useAuction(options: { teamId?: string | null } = {}): UseAuction
   // was just outbid, or rewind the countdown).
   const loadSeqRef = useRef(0);
 
+  // Synchronous guard so a double-click cannot dispatch two place_bid
+  // requests before React renders the disabled button state.
+  const bidInFlightRef = useRef(false);
+
   const load = useCallback(
     async (showSpinner = false) => {
       const seq = ++loadSeqRef.current;
@@ -193,15 +197,33 @@ export function useAuction(options: { teamId?: string | null } = {}): UseAuction
 
   const placeBid = useCallback(
     async (slotId: string, amount: number) => {
-      const result = await placeBidService(slotId, amount);
-
-      if (result.success) {
-        // Re-read the authoritative state instead of patching it locally.
-        void load(false);
-        return { success: true };
+      if (bidInFlightRef.current) {
+        return {
+          success: false,
+          error: "A bid is already being submitted. Please wait.",
+        };
       }
 
-      return { success: false, error: result.error ?? "Failed to place the bid" };
+      bidInFlightRef.current = true;
+
+      try {
+        const result = await placeBidService(slotId, amount);
+
+        if (result.success) {
+          // Re-read the authoritative state instead of patching it locally.
+          // Awaiting the read means the highest bid, leader and leaderboard
+          // are already updated when the success notification is shown.
+          await load(false);
+          return { success: true };
+        }
+
+        // A rejected bid usually means the live state moved on (a higher
+        // bid landed first); heal the client from the backend immediately.
+        void load(false);
+        return { success: false, error: result.error ?? "Failed to place the bid" };
+      } finally {
+        bidInFlightRef.current = false;
+      }
     },
     [load]
   );

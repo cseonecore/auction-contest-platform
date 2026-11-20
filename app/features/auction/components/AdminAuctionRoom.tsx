@@ -22,6 +22,7 @@ import { useAdminAuctionActions } from "@/features/admin/hooks/useAdminAuctionAc
 import { createAuctionTopic } from "@/features/admin/services/auctionAdminService";
 import { AddTopicModal } from "@/features/admin/components/auction/AddTopicModal";
 import { LeaderboardCapsule } from "./LeaderboardCapsule";
+import { rankTeamsByBid } from "../utils/leaderboard";
 import type { AuctionItem } from "../types/auction.types";
 import type {
   AdminSlotWithDetails,
@@ -807,20 +808,15 @@ export function AdminAuctionRoom() {
     [refreshAll, refreshLive]
   );
 
-  // ── Leaderboard (questions won, descending) ─────────────────
-  const { winsByTeam, spentByTeam } = useMemo(() => {
+  // ── Wins per team — drives the round/qualification analysis ──
+  const winsByTeam = useMemo(() => {
     const winsMap = new Map<string, number>();
-    const spentMap = new Map<string, number>();
     for (const s of slots) {
       if (s.status === "sold" && s.winner_team_id) {
         winsMap.set(s.winner_team_id, (winsMap.get(s.winner_team_id) ?? 0) + 1);
-        spentMap.set(
-          s.winner_team_id,
-          (spentMap.get(s.winner_team_id) ?? 0) + (s.current_bid ?? 0)
-        );
       }
     }
-    return { winsByTeam: winsMap, spentByTeam: spentMap };
+    return winsMap;
   }, [slots]);
 
   // Roster: authoritative live state first, admin allocations as
@@ -831,6 +827,7 @@ export function AdminAuctionRoom() {
         id: t.id,
         name: t.name,
         balance: t.balance,
+        currentBid: t.current_bid,
         eliminated: t.eliminated,
       }));
     }
@@ -838,38 +835,29 @@ export function AdminAuctionRoom() {
       id: t.team_id,
       name: t.team_name,
       balance: t.wallet_balance,
+      currentBid: 0,
       eliminated: false,
     }));
   }, [state.teams, teamAllocations]);
 
+  // ── Leaderboard (highest accepted bid in the live item) ─────
+  // `state.teams[].current_bid` is the authoritative maximum bid each
+  // team placed on the currently active item. No wallet balance ever
+  // drives this ranking.
+  const leaderTeamId =
+    state.active_slot?.leader_team_id ?? liveItem?.leader_team_id ?? null;
+
   const boardRows = useMemo(() => {
-    return roster
-      .map((t, i) => {
-        const teamWins = winsByTeam.get(t.id) ?? 0;
-        const totalSpent = spentByTeam.get(t.id) ?? 0;
-        const currentBid = liveItem?.leader_team_id === t.id ? liveItem.current_bid : 0;
-        return {
-          id: t.id,
-          name: t.name,
-          balance: t.balance,
-          currentBid,
-          highestBid: currentBid,
-          totalSpent,
-          winsCount: teamWins,
-          stat: totalSpent > 0 ? totalSpent : teamWins,
-          eliminated: t.eliminated,
-          // Stable mascot per team (roster order, independent of rank).
-          characterIndex: (i % 10) + 1,
-        };
-      })
-      .sort(
-        (a, b) =>
-          b.winsCount - a.winsCount ||
-          b.totalSpent - a.totalSpent ||
-          b.balance - a.balance ||
-          a.name.localeCompare(b.name)
-      );
-  }, [roster, winsByTeam, spentByTeam, liveItem]);
+    return rankTeamsByBid(
+      roster.map((team, index) => ({
+        ...team,
+        winsCount: winsByTeam.get(team.id) ?? 0,
+        // Stable mascot per team (roster order, independent of rank).
+        characterIndex: (index % 10) + 1,
+      })),
+      { leaderTeamId }
+    );
+  }, [roster, winsByTeam, leaderTeamId]);
 
   // ── 3-Round Allocation & Qualification Analysis ───────────────
   const roundMetrics = useMemo(() => {
@@ -1697,12 +1685,13 @@ export function AdminAuctionRoom() {
           ) : (
             <div className="relative">
               <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
-                {boardRows.map((team, rank) => (
+                {boardRows.map((team) => (
                   <LeaderboardCapsule
                     key={team.id}
                     team={team}
-                    rank={rank + 1}
+                    rank={team.rank}
                     totalTeams={boardRows.length}
+                    isLeading={team.isLeading}
                   />
                 ))}
               </div>
