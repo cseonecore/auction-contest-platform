@@ -304,10 +304,21 @@ export const fetchBiddingResults = async (): Promise<
   AdminActionResult<BiddingResultTeam[]>
 > => {
   // 1. Primary path: try PostgreSQL RPC get_bidding_results
-  const res = await call<BiddingResultTeam[]>("get_bidding_results");
+  const res = await call<
+    BiddingResultTeam[] | { teams?: BiddingResultTeam[]; base_dev_seconds?: number }
+  >("get_bidding_results");
 
-  if (res.success && Array.isArray(res.data)) {
-    return res;
+  if (res.success && res.data) {
+    const rawData = res.data;
+    const teamsList = Array.isArray(rawData)
+      ? rawData
+      : Array.isArray((rawData as { teams?: BiddingResultTeam[] }).teams)
+      ? (rawData as { teams: BiddingResultTeam[] }).teams
+      : null;
+
+    if (teamsList) {
+      return { success: true, data: teamsList };
+    }
   }
 
   // 2. If get_bidding_results is missing in schema cache, fall back to direct table queries
@@ -331,7 +342,11 @@ export const fetchBiddingResults = async (): Promise<
     }
   }
 
-  return res;
+  return {
+    success: res.success,
+    error: res.error,
+    data: [],
+  };
 };
 
 /** Fallback builder that aggregates bidding results directly from database tables if RPC is missing. */

@@ -31,7 +31,13 @@ function AdminResultsContent() {
     try {
       const res = await fetchBiddingResults();
       if (res.success && res.data) {
-        setTeams(res.data);
+        const raw = res.data;
+        const list = Array.isArray(raw)
+          ? raw
+          : Array.isArray((raw as { teams?: BiddingResultTeam[] }).teams)
+          ? (raw as { teams: BiddingResultTeam[] }).teams
+          : [];
+        setTeams(list);
       } else {
         setError(res.error || 'Failed to load bidding results from database.');
       }

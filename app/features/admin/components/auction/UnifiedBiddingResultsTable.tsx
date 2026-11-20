@@ -61,10 +61,19 @@ export function UnifiedBiddingResultsTable({
   const [filterWon, setFilterWon] = useState<'all' | 'won' | 'nowins'>('all');
   const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null);
 
+  // Safely extract teams array even if an object was passed
+  const safeTeams = useMemo<BiddingResultTeam[]>(() => {
+    if (Array.isArray(teams)) return teams;
+    if (teams && Array.isArray((teams as unknown as { teams?: BiddingResultTeam[] }).teams)) {
+      return (teams as unknown as { teams: BiddingResultTeam[] }).teams;
+    }
+    return [];
+  }, [teams]);
+
   // Filtered teams list
   const filteredTeams = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return teams.filter((t) => {
+    return safeTeams.filter((t) => {
       // Won filter
       if (filterWon === 'won' && t.won_count === 0) return false;
       if (filterWon === 'nowins' && t.won_count > 0) return false;
@@ -83,7 +92,7 @@ export function UnifiedBiddingResultsTable({
 
       return true;
     });
-  }, [teams, searchQuery, filterWon]);
+  }, [safeTeams, searchQuery, filterWon]);
 
   // Overall contest stats summary
   const summary = useMemo(() => {
@@ -91,23 +100,23 @@ export function UnifiedBiddingResultsTable({
     let totalCoinsSpent = 0;
     let teamsWithWins = 0;
 
-    for (const t of teams) {
+    for (const t of safeTeams) {
       totalWins += t.won_count;
       totalCoinsSpent += t.total_spent;
       if (t.won_count > 0) teamsWithWins += 1;
     }
 
     return {
-      totalTeams: teams.length,
+      totalTeams: safeTeams.length,
       teamsWithWins,
       totalWins,
       totalCoinsSpent,
     };
-  }, [teams]);
+  }, [safeTeams]);
 
   // Export CSV handler
   const handleExportCSV = () => {
-    if (teams.length === 0) return;
+    if (safeTeams.length === 0) return;
 
     const headers = [
       'Team Name',
@@ -125,7 +134,7 @@ export function UnifiedBiddingResultsTable({
       'Total Dev Seconds',
     ];
 
-    const rows = teams.map((t) => {
+    const rows = safeTeams.map((t) => {
       const memberList = (t.members || [])
         .map((m) => `${m.name} (${m.usn})`)
         .join('; ');
@@ -230,7 +239,7 @@ export function UnifiedBiddingResultsTable({
                   : 'text-zinc-400 hover:text-white'
               }`}
             >
-              All ({teams.length})
+              All ({safeTeams.length})
             </button>
             <button
               type="button"
@@ -252,7 +261,7 @@ export function UnifiedBiddingResultsTable({
                   : 'text-zinc-400 hover:text-white'
               }`}
             >
-              No Wins ({teams.length - summary.teamsWithWins})
+              No Wins ({safeTeams.length - summary.teamsWithWins})
             </button>
           </div>
 
@@ -271,7 +280,7 @@ export function UnifiedBiddingResultsTable({
           <button
             type="button"
             onClick={handleExportCSV}
-            disabled={teams.length === 0}
+            disabled={safeTeams.length === 0}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-semibold text-zinc-300 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer disabled:opacity-50"
           >
             <Download className="w-4 h-4" />
