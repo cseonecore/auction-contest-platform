@@ -48,14 +48,14 @@ export const Footer = () => {
 
             {/* Institution partner logos — NO background, scaled in Golden Ratio */}
             <div className="flex items-center gap-5 flex-wrap pt-1">
-              {/* MITE logo — original asset scaled cleanly, pure white, no grain, no background */}
-              <div className="relative h-11 w-32 flex items-center justify-center overflow-hidden">
+              {/* MITE logo — clean, pure white, transparent background, no box */}
+              <div className="flex items-center">
                 <Image
-                  src="/logos/mite-logo.png"
+                  src="/logos/mite-logo-white.png"
                   alt="MITE - Mangalore Institute of Technology and Engineering"
-                  width={1024}
-                  height={1024}
-                  className="h-36 w-36 max-w-none object-contain brightness-0 invert"
+                  width={130}
+                  height={46}
+                  className="h-10 sm:h-11 w-auto object-contain"
                 />
               </div>
 
