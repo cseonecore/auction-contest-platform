@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createSupabaseClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getServiceDb } from "@/lib/serverDb";
 import {
   isValidHttpUrl,
@@ -21,16 +22,36 @@ interface SubmissionBody {
  * 1. An Authorization: Bearer <token> header (cryptographically verified by Supabase Auth).
  * 2. A session cookie evaluated by the SSR server client.
  */
-async function resolveAuthenticatedUser(request: Request) {
+async function resolveAuthenticatedUser(request: Request): Promise<{
+  user: import("@supabase/supabase-js").User | null;
+  client: SupabaseClient | null;
+  error: Error | null;
+}> {
   const authHeader = request.headers.get("authorization") || request.headers.get("Authorization");
   if (authHeader && authHeader.toLowerCase().startsWith("bearer ")) {
     const token = authHeader.substring(7).trim();
     if (token) {
       try {
-        const service = getServiceDb();
-        const { data, error } = await service.auth.getUser(token);
+        const supabaseUrl =
+          process.env.NEXT_PUBLIC_SUPABASE_URL ||
+          "https://qqbuauryvhgssmmxiiuh.supabase.co";
+        const anonKey =
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+          process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+          "sb_publishable_nRvQFOW3SK82rWBY6VsDGw_yw5-3Itj";
+
+        const userClient = createSupabaseClient(supabaseUrl, anonKey, {
+          auth: { persistSession: false, autoRefreshToken: false },
+          global: {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        });
+
+        const { data, error } = await userClient.auth.getUser(token);
         if (!error && data?.user) {
-          return { user: data.user, error: null };
+          return { user: data.user, client: userClient, error: null };
         }
       } catch {
         // Bearer verification failed, proceed to cookie check
@@ -43,13 +64,22 @@ async function resolveAuthenticatedUser(request: Request) {
     const db = await createClient();
     const { data, error } = await db.auth.getUser();
     if (!error && data?.user) {
-      return { user: data.user, error: null };
+      return { user: data.user, client: db, error: null };
     }
   } catch {
     // Cookie read failed
   }
 
-  return { user: null, error: new Error("Unauthorized") };
+  return { user: null, client: null, error: new Error("Unauthorized") };
+}
+
+function getDbClient(fallbackClient?: SupabaseClient | null): SupabaseClient {
+  try {
+    return getServiceDb();
+  } catch {
+    if (fallbackClient) return fallbackClient;
+    throw new Error("No database client available.");
+  }
 }
 
 /**
@@ -92,7 +122,7 @@ export async function POST(request: Request) {
     }
 
     // Authenticate user via Bearer token or cookies
-    const { user, error: authError } = await resolveAuthenticatedUser(request);
+    const { user, client: authClient, error: authError } = await resolveAuthenticatedUser(request);
     if (authError || !user) {
       return NextResponse.json(
         { error: "You must be signed in to submit a solution." },
@@ -100,7 +130,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const service = getServiceDb();
+    const service = getDbClient(authClient);
 
     // Resolve caller's team strictly from members table
     const { data: membership, error: memberErr } = await service
@@ -312,12 +342,12 @@ export async function GET(request: Request) {
     const requestedTeamId = searchParams.get("teamId");
     const fetchAll = searchParams.get("all") === "true";
 
-    const { user, error: authError } = await resolveAuthenticatedUser(request);
+    const { user, client: authClient, error: authError } = await resolveAuthenticatedUser(request);
     if (authError || !user) {
       return NextResponse.json({ error: "Unauthenticated." }, { status: 401 });
     }
 
-    const service = getServiceDb();
+    const service = getDbClient(authClient);
     const isAdminOrJudge =
       user.app_metadata?.role === "admin" || user.app_metadata?.role === "judge";
 

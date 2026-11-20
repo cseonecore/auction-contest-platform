@@ -200,6 +200,14 @@ export const rejectSubmission = async (
   submissionId: string,
   reason?: string
 ): Promise<AdminActionResult<{ success: boolean }>> => {
+  // 1. Direct RPC
+  const rpcRes = await call<{ success: boolean }>("reject_submission", {
+    p_submission_id: submissionId,
+    p_reason: reason ?? "Rejected by judges",
+  });
+  if (rpcRes.success) return rpcRes;
+
+  // 2. Server route
   try {
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData?.session?.access_token;
@@ -216,20 +224,40 @@ export const rejectSubmission = async (
       }),
     });
     const data = await res.json();
-    if (!res.ok || !data.success) {
-      return { success: false, error: data.error || "Failed to reject submission" };
+    if (res.ok && data.success) {
+      return { success: true, data };
     }
-    return { success: true, data };
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Failed to reject submission";
-    return { success: false, error: msg };
-  }
+  } catch {}
+
+  // 3. Client direct database update fallback
+  try {
+    const { error: dbError } = await supabase
+      .from("submissions")
+      .update({
+        status: "rejected",
+        judge_notes: reason ?? null,
+      })
+      .eq("id", submissionId);
+    if (!dbError) {
+      return { success: true, data: { success: true } };
+    }
+  } catch {}
+
+  return { success: false, error: rpcRes.error || "Failed to reject submission" };
 };
 
 export const reopenSubmission = async (
   submissionId: string,
   notes?: string
 ): Promise<AdminActionResult<{ success: boolean }>> => {
+  // 1. Direct RPC
+  const rpcRes = await call<{ success: boolean }>("reopen_submission", {
+    p_submission_id: submissionId,
+    p_notes: notes ?? "Reopened for revisions",
+  });
+  if (rpcRes.success) return rpcRes;
+
+  // 2. Server route
   try {
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData?.session?.access_token;
@@ -246,35 +274,178 @@ export const reopenSubmission = async (
       }),
     });
     const data = await res.json();
-    if (!res.ok || !data.success) {
-      return { success: false, error: data.error || "Failed to reopen submission" };
+    if (res.ok && data.success) {
+      return { success: true, data };
     }
-    return { success: true, data };
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Failed to reopen submission";
-    return { success: false, error: msg };
-  }
+  } catch {}
+
+  // 3. Client direct database update fallback
+  try {
+    const { error: dbError } = await supabase
+      .from("submissions")
+      .update({
+        status: "submitted",
+        judge_notes: notes ?? null,
+      })
+      .eq("id", submissionId);
+    if (!dbError) {
+      return { success: true, data: { success: true } };
+    }
+  } catch {}
+
+  return { success: false, error: rpcRes.error || "Failed to reopen submission" };
 };
 
-export const fetchAdminSubmissions = async () => {
+export interface AdminSubmissionsResult {
+  success: boolean;
+  submissions: unknown[];
+  error?: string;
+}
+
+export const fetchAdminSubmissionsFallback = async (): Promise<AdminSubmissionsResult> => {
   try {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const token = sessionData?.session?.access_token;
-    const res = await fetch("/api/submission?all=true", {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    const data = await res.json();
-    if (!res.ok || !data.success) {
-      return { success: false, error: data.error || "Failed to load submissions", submissions: [] };
+    const [subsRes, evalsRes, bonusesRes] = await Promise.all([
+      supabase
+        .from("submissions")
+        .select(`
+          id,
+          team_id,
+          slot_id,
+          repository_url,
+          live_url,
+          status,
+          submitted_at,
+          approved_at,
+          approved_by,
+          judge_notes,
+          team:teams(id, name),
+          slot:slots(id, round, topic:topics(id, title, description, level))
+        `)
+        .order("submitted_at", { ascending: false }),
+      supabase.from("evaluations").select("submission_id, score, report, status"),
+      supabase.from("bonus_transactions").select("submission_id, bonus_seconds, created_at"),
+    ]);
+
+    if (subsRes.error) {
+      return { success: false, error: subsRes.error.message, submissions: [] };
     }
-    return { success: true, submissions: data.submissions || [] };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const evalMap = new Map((evalsRes.data || []).map((e: any) => [e.submission_id, e]));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const bonusMap = new Map((bonusesRes.data || []).map((b: any) => [b.submission_id, b]));
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const submissions = (subsRes.data || []).map((sub: any) => {
+      const ev = evalMap.get(sub.id);
+      const bo = bonusMap.get(sub.id);
+      const teamRel = sub.team as { id: string; name: string } | null;
+      const slotRel = sub.slot as {
+        id: string;
+        round: number;
+        topic?: { id: string; title: string; description: string; level: string };
+      } | null;
+
+      return {
+        id: sub.id,
+        team_id: sub.team_id,
+        team_name: teamRel?.name ?? "Unknown Team",
+        slot_id: sub.slot_id,
+        round: slotRel?.round ?? 1,
+        topic_title: slotRel?.topic?.title ?? "Problem Statement",
+        topic_description: slotRel?.topic?.description ?? "",
+        repository_url: sub.repository_url,
+        live_url: sub.live_url,
+        status: sub.status,
+        submitted_at: sub.submitted_at,
+        approved_at: sub.approved_at,
+        approved_by: sub.approved_by,
+        judge_notes: sub.judge_notes,
+        evaluation: ev
+          ? {
+              score: ev.score,
+              report: ev.report,
+              status: ev.status,
+            }
+          : null,
+        bonus: bo
+          ? {
+              bonus_seconds: bo.bonus_seconds,
+              created_at: bo.created_at,
+            }
+          : null,
+      };
+    });
+
+    return { success: true, submissions };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Failed to load submissions";
     return { success: false, error: msg, submissions: [] };
   }
 };
 
-export const fetchBonusHistory = () => call("get_bonus_history");
+export const fetchAdminSubmissions = async (): Promise<AdminSubmissionsResult> => {
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token;
+    const res = await fetch("/api/submission?all=true", {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && Array.isArray(data.submissions)) {
+        return { success: true, submissions: data.submissions };
+      }
+    }
+  } catch {
+    // API route unreachable, try direct query fallback below
+  }
+
+  return fetchAdminSubmissionsFallback();
+};
+
+export const fetchBonusHistory = async (): Promise<AdminActionResult<unknown>> => {
+  const res = await call("get_bonus_history");
+  if (res.success) return res;
+
+  // Fallback: direct database query
+  try {
+    const { data, error } = await supabase
+      .from("bonus_transactions")
+      .select(`
+        id,
+        team_id,
+        slot_id,
+        topic_id,
+        submission_id,
+        approved_by,
+        bonus_seconds,
+        reason,
+        created_at,
+        team:teams(name)
+      `)
+      .order("created_at", { ascending: false });
+
+    if (!error && data) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const formatted = data.map((b: any) => ({
+        id: b.id,
+        team_id: b.team_id,
+        team_name: b.team?.name || "Unknown Team",
+        slot_id: b.slot_id,
+        topic_id: b.topic_id,
+        submission_id: b.submission_id,
+        approved_by: b.approved_by,
+        bonus_seconds: b.bonus_seconds,
+        reason: b.reason,
+        created_at: b.created_at,
+      }));
+      return { success: true, data: formatted };
+    }
+  } catch {}
+
+  return res;
+};
 
 // ── Topics ───────────────────────────────────────────────────────
 export const createAuctionTopic = (values: {

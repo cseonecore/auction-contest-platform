@@ -58,11 +58,12 @@ export async function POST(request: Request) {
 
     if (bearerToken) {
       const supabaseUrl =
-        process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
+        process.env.NEXT_PUBLIC_SUPABASE_URL ||
+        "https://qqbuauryvhgssmmxiiuh.supabase.co";
       const anonKey =
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
         process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-        "placeholder-key";
+        "sb_publishable_nRvQFOW3SK82rWBY6VsDGw_yw5-3Itj";
 
       userClient = createSupabaseClient(supabaseUrl, anonKey, {
         auth: { persistSession: false, autoRefreshToken: false },
@@ -77,7 +78,9 @@ export async function POST(request: Request) {
     }
 
     // 2. Authenticate the caller and verify cryptographic token validity
-    const { data: authData, error: authError } = await userClient.auth.getUser();
+    const { data: authData, error: authError } = await (bearerToken
+      ? userClient.auth.getUser(bearerToken)
+      : userClient.auth.getUser());
     if (authError || !authData?.user) {
       return NextResponse.json(
         { error: "Admin authentication required." },
