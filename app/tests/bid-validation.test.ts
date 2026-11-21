@@ -15,7 +15,6 @@ describe("validateBid", () => {
     walletBalance: 100,
     isLeader: false,
     hasWonRound: false,
-    isCaptain: true,
     slotStatus: "open",
   };
 
@@ -29,12 +28,6 @@ describe("validateBid", () => {
     const result = validateBid({ ...base, currentBid: 30 });
     expect(result.minNextBid).toBe(35);
     expect(result.canBid).toBe(true);
-  });
-
-  it("blocks a non-captain", () => {
-    const result = validateBid({ ...base, isCaptain: false });
-    expect(result.canBid).toBe(false);
-    expect(result.reason).toMatch(/captain/i);
   });
 
   it("blocks an eliminated team", () => {

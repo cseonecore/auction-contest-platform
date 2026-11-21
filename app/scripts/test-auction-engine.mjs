@@ -250,11 +250,9 @@ async function main() {
     return ''
   })
 
-  await check('a non-captain member cannot bid', async () => {
-    await db.query(`insert into public.members (id, team_id, name, email)
-                    values ('a0000000-0000-4000-8000-000000000012', '${TEAM_A}', 'Alpha Member', 'am@test.invalid')`)
+  await check('a signed-in user outside every team cannot bid', async () => {
     await asUser(db, 'a0000000-0000-4000-8000-000000000012', 'captain')
-    await expectError(db, 'bid', () => db.query(`select public.place_bid($1, 10)`, [slot1]), /Only the team captain/)
+    await expectError(db, 'bid', () => db.query(`select public.place_bid($1, 10)`, [slot1]), /not registered with any team/)
     return ''
   })
 

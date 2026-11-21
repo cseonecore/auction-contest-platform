@@ -330,7 +330,6 @@ export function ParticipantAuctionRoom() {
                 currentRound={session?.round ?? activeSlot?.round ?? 1}
                 minBid={settings.min_bid}
                 minRaise={settings.min_raise}
-                isCaptain={identity.isCaptain}
                 eliminated={Boolean(myElimination)}
                 paused={isPaused}
                 timerExpired={Boolean(activeSlot?.end_time) && countdown.secondsLeft <= 0}

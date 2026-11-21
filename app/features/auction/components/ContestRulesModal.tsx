@@ -84,9 +84,9 @@ export function ContestRulesModal({ isOpen, onClose }: ContestRulesModalProps) {
             <ShieldAlert className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
             <div>
               <strong className="text-white block font-semibold mb-0.5">
-                No Self-Outbidding &amp; Captain Authorization (§5.3)
+                No Self-Outbidding (§5.3)
               </strong>
-              Teams cannot bid against their own leading bid. Only designated team captains can place bids.
+              Teams cannot bid against their own leading bid. The signed-in team account places bids on behalf of its team.
             </div>
           </div>
 

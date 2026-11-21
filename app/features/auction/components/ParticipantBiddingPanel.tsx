@@ -17,7 +17,6 @@ interface ParticipantBiddingPanelProps {
   currentRound?: number;
   minBid?: number;
   minRaise?: number;
-  isCaptain?: boolean;
   eliminated?: boolean;
   paused?: boolean;
   /** The client countdown reached zero (advisory — never blocks an open item). */
@@ -43,7 +42,6 @@ export function ParticipantBiddingPanel({
   currentRound = 1,
   minBid = 10,
   minRaise = 5,
-  isCaptain = true,
   eliminated = false,
   paused = false,
   timerExpired = false,
@@ -62,7 +60,6 @@ export function ParticipantBiddingPanel({
     hasWonRound,
     wonCount,
     currentRound,
-    isCaptain,
     slotStatus,
     eliminated,
     paused,

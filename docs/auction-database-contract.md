@@ -14,7 +14,9 @@ auth.users.id  ==  public.members.id  ==  public.teams.captain_id
 
 The captain's `members` row **is** the Auth user. `current_team_id()` maps the
 JWT subject to a team through `members`, and `place_bid()` resolves the bidder
-through `teams.captain_id`. If this chain is broken, nobody can bid.
+through the captain chain and then the caller's team membership. Login is
+captain-only (teammates have no Auth account), so only the captain can obtain
+a session; the team lookup keeps bids bound to the caller's own team.
 
 > Migration 011 ships `align_identities()`, which repairs a database that was
 > created with the old (broken) registration flow, and logs the repair in
@@ -172,11 +174,11 @@ Added: `live_url text`, `approved_by uuid`, `approved_at timestamptz`,
 |---|---|---|---|
 | `place_bid` | `(p_slot_id uuid, p_amount int)` | jsonb | The only participant write. Row-locks the item. |
 
-`place_bid` validates, in order: authentication → captain resolution →
-elimination → amount → item state (open / not paused / not expired) → minimum
-bid and raise (from settings) → not the leader → one win per round →
-sufficient balance → records the bid → raises `current_bid` and `end_time` →
-writes `audit_log`.
+`place_bid` validates, in order: authentication → team resolution (captain
+chain, then caller membership) → elimination → amount → item state (open /
+not paused / not expired) → minimum bid and raise (from settings) → not the
+leader → one win per round → sufficient balance → records the bid → raises
+`current_bid` and `end_time` → writes `audit_log`.
 
 ### 3.2 Session lifecycle (admin)
 
@@ -255,7 +257,7 @@ text default null, p_grant_bonus boolean default true)`,
 | Invariant | Mechanism |
 |---|---|
 | The highest bid never regresses | `place_bid` only ever increases `current_bid`; the item row is locked `FOR UPDATE` |
-| A bid must be authorised | `teams.captain_id = auth.uid()` inside the function |
+| A bid must be authorised | the caller must belong to the team they bid for (`teams.captain_id = auth.uid()` or a matching `members` row); login itself is captain-only |
 | A bid must arrive before the deadline | `end_time > clock_timestamp()` |
 | A bid must satisfy the minimum raise | `current_bid + settings.min_raise` |
 | A team must be able to pay | wallet row locked `FOR UPDATE`, balance checked |

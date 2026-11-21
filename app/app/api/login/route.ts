@@ -105,48 +105,42 @@ export async function POST(request: Request) {
       );
     }
 
-    // 3. Identify the Captain of this team
+    // 3. Identify the Captain of this team. Login is captain-only, so
+    // this never falls back to an arbitrary member row.
     const captainEmail = `${cleanCaptainUsn.toLowerCase()}@mite.ac.in`;
-    const memberMatchingUsn = members.find(
-      (m) =>
-        m.email?.toLowerCase() === captainEmail ||
-        m.email?.toUpperCase().includes(cleanCaptainUsn) ||
-        (m.college && m.college.toUpperCase().includes(cleanCaptainUsn))
+    const memberMatchingUsn =
+      members.find((m) => m.email?.toLowerCase() === captainEmail) ?? null;
+
+    const hasCaptainMarker = (college: string | null | undefined): boolean =>
+      Boolean(college && /(?:^|\b)(?:sem(?:ester)?|captain)\b/i.test(college));
+
+    let captain =
+      (team.captain_id &&
+        members.find((m) => m.id === team.captain_id)) ||
+      null;
+
+    // Repair a stale captain pointer only when the replacement row both
+    // matches the typed USN and carries the captain marker.
+    if (
+      (!captain || captain.email?.toLowerCase() !== captainEmail) &&
+      memberMatchingUsn &&
+      hasCaptainMarker(memberMatchingUsn.college)
+    ) {
+      captain = memberMatchingUsn;
+    }
+
+    // 4. Strictly match the typed USN against the Captain's registered
+    // email. Teammates have no Auth account and are therefore unable to
+    // log in — only the exact captain USN is accepted here.
+    const isCaptainMatch = Boolean(
+      captain && captain.email?.toLowerCase() === captainEmail
     );
-
-    let captain = null;
-    if (team.captain_id) {
-      captain = members.find((m) => m.id === team.captain_id);
-    }
-
-    // If the registered captain was misaligned or stored under a member row matching the typed USN
-    if (!captain || (memberMatchingUsn && memberMatchingUsn.id !== captain?.id && memberMatchingUsn.college?.toLowerCase().includes("sem"))) {
-      if (memberMatchingUsn && memberMatchingUsn.college && memberMatchingUsn.college.toLowerCase().includes("sem")) {
-        captain = memberMatchingUsn;
-      } else if (!captain) {
-        captain =
-          members.find(
-            (m) =>
-              m.college &&
-              (m.college.toLowerCase().includes("sem") ||
-                m.college.toLowerCase().includes("captain") ||
-                m.college.toLowerCase().includes("ph"))
-          ) || members[0];
-      }
-    }
-
-    // 4. Strictly match Captain USN against the Captain's registered USN/email (serving as password)
-    const isCaptainMatch =
-      captain?.email &&
-      (captain.email.toLowerCase() === captainEmail ||
-        captain.email.toUpperCase().includes(cleanCaptainUsn) ||
-        (captain.college && captain.college.toUpperCase().includes(cleanCaptainUsn)));
 
     if (!isCaptainMatch) {
       return NextResponse.json(
         {
           error:
-            "Invalid Captain USN for this team. Please enter the correct Captain USN used during registration.",
+            "Only the registered Team Captain can log in. Teammates do not have login access, and the Captain USN must match the one used during registration.",
         },
         { status: 401 }
       );
@@ -446,6 +440,9 @@ async function ensureAuthUser(
         team_id: repair.teamId,
         team_name: repair.teamName,
       },
+      app_metadata: {
+        role: "captain",
+      },
     });
 
     if (error) {
@@ -540,7 +537,11 @@ async function resyncAuthUser(
       if (user) {
         const { error: updateError } = await db.auth.admin.updateUserById(
           user.id,
-          { password, email_confirm: true }
+          {
+            password,
+            email_confirm: true,
+            app_metadata: { role: "captain" },
+          }
         );
         if (updateError) {
           console.error(

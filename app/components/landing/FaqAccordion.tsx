@@ -46,7 +46,7 @@ const faqItems: FaqItem[] = [
   {
     question: "Who can access the team's account?",
     answer:
-      "Only the designated team captain and registered team members can access the team's account. No unauthorized sharing or multiple-device login is permitted.",
+      "Only the designated team captain can log in and bid for the team. Teammates cannot log in, and no unauthorized sharing or multiple-device login is permitted.",
   },
   {
     question: "How are submissions evaluated?",

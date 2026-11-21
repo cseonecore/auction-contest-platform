@@ -203,14 +203,14 @@ begin
 
 
   -- ──────────────────────────────────────────────────────────
-  -- TEST 5: Reject Non-Captain Bid
+  -- TEST 5: Reject a signed-in caller who belongs to no team
   -- ──────────────────────────────────────────────────────────
   v_curr_num    := 5;
-  v_curr_name   := 'Authorization: Reject Non-Captain Bid';
-  v_curr_assert := 'place_bid rejects regular team members who are not captains';
+  v_curr_name   := 'Authorization: Reject Caller Outside a Team';
+  v_curr_assert := 'place_bid rejects a signed-in caller with no team membership';
 
-  perform set_config('request.jwt.claim.sub', v_mem1_uid::text, true);
-  perform set_config('request.jwt.claims', json_build_object('sub', v_mem1_uid::text, 'app_metadata', json_build_object('role', 'authenticated'))::text, true);
+  perform set_config('request.jwt.claim.sub', gen_random_uuid()::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', gen_random_uuid()::text, 'app_metadata', json_build_object('role', 'authenticated'))::text, true);
 
   v_op_succeeded := false;
   v_err_msg := null;
@@ -223,11 +223,11 @@ begin
   end;
 
   if v_op_succeeded then
-    raise exception 'TEST % FAILED [%]: Non-captain member was allowed to place a bid!', v_curr_num, v_curr_name;
+    raise exception 'TEST % FAILED [%]: A caller outside every team was allowed to place a bid!', v_curr_num, v_curr_name;
   end if;
 
-  if v_err_msg not ilike '%Only the team captain%' then
-    raise exception 'TEST % FAILED [%]: Expected captain authorization error, got: %', v_curr_num, v_curr_name, v_err_msg;
+  if v_err_msg not ilike '%not registered with any team%' then
+    raise exception 'TEST % FAILED [%]: Expected team membership error, got: %', v_curr_num, v_curr_name, v_err_msg;
   end if;
 
   insert into auction_test_results values (v_curr_num, v_curr_name, 'PASS', v_curr_assert, 'Rejected with: ' || v_err_msg);

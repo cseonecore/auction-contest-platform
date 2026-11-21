@@ -10,8 +10,10 @@ interface BidRequest {
  * Place a bid.
  *
  * The caller's team is resolved from their authenticated session by
- * the database (`place_bid()` looks up `teams.captain_id` from
- * `auth.uid()`), so a client cannot bid on behalf of another team.
+ * the database (`place_bid()` looks up the caller's captain chain and
+ * team membership from `auth.uid()`), so a client cannot bid on behalf
+ * of another team. Login is captain-only, so teammates never obtain a
+ * session in the first place.
  * The RPC locks the auction item row, so concurrent bids are
  * serialised and the highest bid can never regress.
  */

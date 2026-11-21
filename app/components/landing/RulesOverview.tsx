@@ -30,7 +30,7 @@ const ruleGroups = [
       "Losing bids do not consume points",
       "Unspent points contribute to the evaluation bonus",
       "Bids are final once placed",
-      "Only the captain can participate in bidding",
+      "Only the designated captain can log in and bid",
     ],
   },
   {

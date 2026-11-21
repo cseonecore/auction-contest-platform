@@ -108,7 +108,7 @@ export type AuctionTimerStatus =
 // UI / logic types
 // ─────────────────────────────────────────────────────────────
 
-/** Whether the current captain is eligible to bid and why if not. */
+/** Whether the signed-in participant is eligible to bid and why if not. */
 export interface BidEligibility {
   canBid: boolean
   reason?: string

@@ -146,11 +146,12 @@ export async function fetchCurrentIdentity(): Promise<
     const userEmail = (authData.user.email ?? "").toLowerCase();
 
     // 1. Primary lookup by auth user id
-    let { data: member, error: memberError } = await supabase
+    const { data: memberByAuthId, error: memberError } = await supabase
       .from("members")
       .select("id, team_id, email, college, team:teams(id, name, captain_id)")
       .eq("id", userId)
       .maybeSingle();
+    let member = memberByAuthId;
 
     // 2. Secondary fallback by registered email
     if (!member && userEmail) {

@@ -95,7 +95,8 @@ export const FigmaLoginForm: React.FC = () => {
         Log in To Your Profile
       </h1>
       <p className="text-xs sm:text-sm text-slate-500 font-normal mt-2">
-        Enter your Team Name and Captain USN (Password) to view your profile
+        Only the designated Team Captain can log in. Enter your Team Name and
+        Captain USN (Password) to access your team profile.
       </p>
 
       {/* Error Message */}
@@ -153,7 +154,9 @@ export const FigmaLoginForm: React.FC = () => {
             </button>
           </div>
           <p className="text-[11px] text-slate-400 text-left pl-4 pt-1 font-sans">
-            Captain USN acts as your password (Format: <span className="font-mono font-medium text-slate-500">4MT2XBBMMM</span>)
+            Captain USN acts as your password (Format:{" "}
+            <span className="font-mono font-medium text-slate-500">4MT2XBBMMM</span>).
+            Teammates cannot log in.
           </p>
         </div>
 

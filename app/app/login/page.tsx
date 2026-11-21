@@ -7,7 +7,7 @@ import { FigmaLoginForm } from "@/features/auth/components/FigmaLoginForm";
 
 export const metadata: Metadata = {
   title: "Log in To Your Profile",
-  description: "Enter your Team Name and Captain USN to access your contest profile.",
+  description: "Only the designated Team Captain can log in with the Team Name and Captain USN.",
 };
 
 export default function LoginPage() {

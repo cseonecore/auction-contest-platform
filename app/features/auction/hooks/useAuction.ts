@@ -125,7 +125,7 @@ export function useAuction(options: { teamId?: string | null } = {}): UseAuction
 
   // Resolve the participant identity. Re-run whenever the browser's
   // Supabase session changes (login adopted via setSession, sign-out,
-  // token re-issue) so `identity.isCaptain` can never go stale.
+  // token re-issue) so the resolved team can never go stale.
   const resolveIdentity = useCallback(async () => {
     const result = await fetchCurrentIdentity();
 

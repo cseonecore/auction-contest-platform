@@ -24,8 +24,6 @@ export interface BidValidationInput {
   wonCount?: number;
   /** Active auction round (1, 2, or 3). */
   currentRound?: number;
-  /** Only the captain may bid. */
-  isCaptain: boolean;
   /** Status of the auction item. */
   slotStatus: string;
   /** The team has been eliminated. */
@@ -66,7 +64,6 @@ export function validateBid(input: BidValidationInput): BidValidationResult {
     minNextBid,
   });
 
-  if (!input.isCaptain) return fail("Only the team captain can place bids.");
   if (input.eliminated) return fail("Your team has been eliminated from the auction.");
   if (input.currentRound === 3 && (input.wonCount ?? 0) >= 2) {
     return fail("Your team already has 2 problem statements and cannot participate in Round 3.");

@@ -54,7 +54,9 @@ export function AdminAuthGuard({ children }: AdminAuthGuardProps) {
         </div>
 
         <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-lg text-xs text-amber-800 dark:text-amber-300">
-          <strong>Security Note:</strong> Server-side session middleware (@supabase/ssr) is not yet configured. Authorization is strictly enforced at the database level requiring an active session with role: &apos;admin&apos;.
+          <strong>Security Note:</strong> Sign-in is verified on the server and only accounts with
+          the <code>admin</code> role are accepted. Authorization is additionally enforced at the
+          database level through Row Level Security.
         </div>
 
         {loginError && (
@@ -79,7 +81,7 @@ export function AdminAuthGuard({ children }: AdminAuthGuardProps) {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@bid2build.com"
+              placeholder="you@example.com"
               className="w-full px-3 py-2 text-sm rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
