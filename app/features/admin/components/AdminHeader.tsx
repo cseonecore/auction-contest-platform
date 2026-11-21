@@ -16,7 +16,7 @@ export function AdminHeader({ userEmail, role, onSignOut, currentPage = "Setting
       <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <B2BLogo variant="dark" height={24} href="/admin" />
+            <B2BLogo variant="dark" height={26} href="/admin" />
             <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-[#fe5102]/20 text-[#fe5102] border border-[#fe5102]/30">
               Admin Portal
             </span>

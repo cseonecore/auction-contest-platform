@@ -119,7 +119,7 @@ export default function ProjectorAuctionPage() {
       {/* Slim status bar — no navigation clutter */}
       <header className="flex items-center justify-between border-b border-white/10 bg-[#141518] px-6 py-3 select-none">
         <div className="flex items-center gap-3">
-          <B2BLogo variant="dark" height={20} />
+          <B2BLogo variant="dark" height={22} />
           <span className="rounded-full border border-[#fe5102]/30 bg-[#fe5102]/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#fe5102]">
             Auction Live
           </span>

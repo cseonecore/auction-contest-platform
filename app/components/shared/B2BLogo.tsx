@@ -46,8 +46,8 @@ export const B2BLogo: React.FC<B2BLogoProps> = ({
   // Aspect ratios: wordmark 2169×725 ≈ 2.99 | icon 1:1
   const aspectRatio = variant === "icon" ? 1 : 2169 / 725;
   const imageWidth = Math.round(height * aspectRatio);
-  // Slightly enlarge the rendered mark without changing header layout.
-  const LOGO_SCALE = 1.03;
+  // Enlarge the rendered mark so it stands out in the header.
+  const LOGO_SCALE = 1.08;
 
   const content = (
     <div className={`inline-flex items-center select-none ${className}`}>

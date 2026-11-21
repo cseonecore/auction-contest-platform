@@ -15,7 +15,7 @@ export default function RegisterPage() {
     <div className="min-h-screen bg-linear-to-b from-white via-white via-50% to-[#fbcfb5]/85 text-slate-900 flex flex-col justify-between py-6 px-4 sm:px-12 select-none">
       {/* Header matching Registration Page.png */}
       <header className="w-full flex items-center justify-between">
-        <B2BLogo variant="dark" height={32} />
+        <B2BLogo variant="dark" height={34} />
 
         {/* Center: MITE Official College Logo, NAAC A+ Badge & CORE Emblem */}
         <div className="flex items-center gap-2.5 sm:gap-3.5 px-3 sm:px-4 py-1.5 sm:py-2 bg-white/80 backdrop-blur-xs rounded-2xl border border-slate-200/70 shadow-2xs">
