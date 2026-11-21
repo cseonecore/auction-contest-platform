@@ -44,7 +44,7 @@ export function ParticipantAuctionHeader({
       <header className="w-full bg-[#121316] border-b border-zinc-800/80 px-4 sm:px-8 py-3.5 select-none">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           {/* Left: Bid2Build Logo */}
-          <B2BLogo variant="light" height={28} />
+          <B2BLogo variant="dark" height={28} />
 
           {/* Right Navigation matching screenshots */}
           <div className="flex items-center gap-4 sm:gap-6 text-xs sm:text-sm font-medium text-zinc-300">

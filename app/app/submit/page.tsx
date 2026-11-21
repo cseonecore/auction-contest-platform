@@ -259,7 +259,7 @@ export default function SubmitPage() {
       <div className="max-w-3xl w-full mx-auto space-y-8">
         {/* Navigation */}
         <header className="flex items-center justify-between pt-2 pb-4">
-          <B2BLogo variant="light" height={28} />
+          <B2BLogo variant="dark" height={28} />
           <div className="flex items-center gap-6 text-sm">
             <Link
               href="/profile"

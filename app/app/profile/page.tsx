@@ -246,7 +246,7 @@ export default function ProfilePage() {
         {/* TOP NAVBAR                                                 */}
         {/* ========================================================= */}
         <header className="flex items-center justify-between pt-2 pb-4">
-          <B2BLogo variant="light" height={28} />
+          <B2BLogo variant="dark" height={28} />
           <div className="flex items-center gap-6 text-sm">
             <button
               type="button"
