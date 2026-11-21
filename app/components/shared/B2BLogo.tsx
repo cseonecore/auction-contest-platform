@@ -4,8 +4,8 @@ import Image from "next/image";
 
 export interface B2BLogoProps {
   /**
-   * "dark"  = Original logo colors — use on dark backgrounds (new_bid2build_logo.png)
-   * "light" = White version — use on dark backgrounds needing pure white (white-logo.png)
+   * "dark"  = Actual Bid2Build logo (new_bid2build_logo.png)
+   * "light" = Actual Bid2Build logo (new_bid2build_logo.png)
    * "icon"  = Icon-only mark (bid2build_icon-01.png)
    */
   variant?: "dark" | "light" | "icon";
@@ -39,15 +39,15 @@ export const B2BLogo: React.FC<B2BLogoProps> = ({
   presentational = false,
 }) => {
   const logoSrc =
-    variant === "light"
-      ? "/white-logo.png"
-      : variant === "icon"
+    variant === "icon"
       ? "/bid2build_icon-01.png"
       : "/new_bid2build_logo.png";
 
   // Aspect ratios: wordmark 2169×725 ≈ 2.99 | icon 1:1
   const aspectRatio = variant === "icon" ? 1 : 2169 / 725;
   const imageWidth = Math.round(height * aspectRatio);
+  // Slightly enlarge the rendered mark without changing header layout.
+  const LOGO_SCALE = 1.03;
 
   const content = (
     <div className={`inline-flex items-center select-none ${className}`}>
@@ -58,7 +58,7 @@ export const B2BLogo: React.FC<B2BLogoProps> = ({
         height={height}
         className="object-contain w-auto h-auto"
         priority={priority}
-        style={{ maxHeight: `${height}px` }}
+        style={{ maxHeight: `${height}px`, transform: `scale(${LOGO_SCALE})` }}
       />
     </div>
   );
