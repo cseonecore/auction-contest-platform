@@ -91,6 +91,7 @@ interface RollbackParams {
   db: SupabaseClient;
   teamId?: string | null;
   authUserId?: string | null;
+  isNewAuthUser?: boolean;
   reason: string;
 }
 
@@ -103,6 +104,7 @@ async function rollbackRegistration({
   db,
   teamId,
   authUserId,
+  isNewAuthUser = false,
   reason,
 }: RollbackParams): Promise<string[]> {
   const failures: string[] = [];
@@ -177,17 +179,18 @@ async function rollbackRegistration({
     }
   }
 
-  // 4. Delete Auth user
-  if (authUserId) {
+  // 5. Delete Auth user ONLY if it was newly created in this registration attempt.
+  // Never delete pre-existing or orphaned Auth users to protect account integrity.
+  if (authUserId && isNewAuthUser) {
     try {
       if (db.auth?.admin?.deleteUser) {
         const { error } = await db.auth.admin.deleteUser(authUserId);
         if (error) {
-          const msg = `Failed to delete Auth user ${authUserId}: ${error.message}`;
+          const msg = `Failed to delete newly created Auth user ${authUserId}: ${error.message}`;
           console.error(`[Register API Rollback ERROR] ${msg}`);
           failures.push(msg);
         } else {
-          console.log(`[Register API Rollback] Deleted Auth user: ${authUserId}`);
+          console.log(`[Register API Rollback] Deleted newly created Auth user: ${authUserId}`);
         }
       } else {
         const msg = `db.auth.admin.deleteUser unavailable; could not delete Auth user ${authUserId}`;
@@ -199,6 +202,8 @@ async function rollbackRegistration({
       console.error(`[Register API Rollback ERROR] ${msg}`);
       failures.push(msg);
     }
+  } else if (authUserId && !isNewAuthUser) {
+    console.log(`[Register API Rollback] Preserved existing Auth user during rollback: ${authUserId}`);
   }
 
   if (failures.length > 0) {
@@ -214,31 +219,73 @@ async function rollbackRegistration({
   return failures;
 }
 
+interface CaptainAuthResolution {
+  userId: string;
+  isNewUser: boolean;
+  error: Error | null;
+  conflictDetails?: {
+    isRegisteredTeam: boolean;
+    teamName?: string;
+  };
+}
+
 /**
- * Creates a Supabase Auth user for the captain using the service-role admin API.
- * Never falls back to client-side auth.signUp().
- * Returns the Auth user ID on success.
+ * Searches for an existing Supabase Auth user by email across all pages.
  */
-async function createAuthUserWithRole(
+async function findAuthUserByEmail(
+  supabase: SupabaseClient,
+  email: string
+): Promise<{ id: string; email?: string } | null> {
+  const cleanEmail = email.trim().toLowerCase();
+  const perPage = 200;
+  for (let page = 1; page <= 10; page++) {
+    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage });
+    if (error || !data?.users) {
+      console.error("[Register API] Error listing auth users:", error?.message);
+      break;
+    }
+    const found = data.users.find(
+      (u) => (u.email || "").trim().toLowerCase() === cleanEmail
+    );
+    if (found) return { id: found.id, email: found.email };
+    if (data.users.length < perPage) break;
+  }
+  return null;
+}
+
+/**
+ * Resolves or creates a Supabase Auth user for the captain.
+ * Handles existing/orphaned accounts intelligently:
+ *   1. If user does not exist, creates it with captain role and confirmed email.
+ *   2. If user already exists:
+ *      - Checks if user is already linked to an active team or member in PostgreSQL.
+ *      - If already linked, signals duplicate registration conflict.
+ *      - If orphaned (no team or member record), adopts and updates the account with initial credentials.
+ * Never falls back to client-side auth.signUp().
+ */
+async function resolveCaptainAuthUser(
   supabase: SupabaseClient,
   email: string,
   password: string,
-  role: string
-): Promise<{ userId: string; error: Error | null }> {
+  cleanCaptainUsn: string,
+  role: string = "captain"
+): Promise<CaptainAuthResolution> {
   try {
     if (!supabase.auth?.admin?.createUser) {
       return {
         userId: "",
+        isNewUser: false,
         error: new Error("Supabase Auth admin API is unavailable on the service client."),
       };
     }
 
+    // 1. Attempt to create fresh Auth user
     const { data, error: adminError } = await supabase.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
       user_metadata: {
-        usn: email.split("@")[0],
+        usn: cleanCaptainUsn.toLowerCase(),
         role: role,
       },
       app_metadata: {
@@ -246,24 +293,102 @@ async function createAuthUserWithRole(
       },
     });
 
-    if (adminError) {
-      console.error("[Register API] admin.createUser error:", adminError.message);
-      return { userId: "", error: adminError };
+    if (!adminError && data?.user?.id) {
+      const newId = data.user.id.trim();
+      console.log(`[Register API] Created new Auth user via admin API: ${newId}`);
+      return { userId: newId, isNewUser: true, error: null };
     }
 
-    const userId = data?.user?.id?.trim();
-    if (!userId) {
+    // 2. If error is not a duplicate/already registered error, return failure immediately
+    const errorMsg = adminError?.message || "Failed to create authentication user.";
+    const errLower = errorMsg.toLowerCase();
+    const isAlreadyExists =
+      /already.*registered|already exists|duplicate/i.test(errLower) ||
+      (errLower.includes("already") && errLower.includes("register")) ||
+      (errLower.includes("already") && errLower.includes("exist"));
+
+    if (!isAlreadyExists) {
+      console.error("[Register API] Unexpected admin.createUser error:", errorMsg);
+      return { userId: "", isNewUser: false, error: adminError || new Error(errorMsg) };
+    }
+
+    // 3. Email already exists in Auth. Find the existing Auth user record.
+    console.log(`[Register API] Auth account for ${email} already exists. Locating existing account...`);
+    const existingUser = await findAuthUserByEmail(supabase, email);
+    if (!existingUser || !existingUser.id) {
+      console.error(`[Register API] Could not locate existing Auth user for email ${email}`);
       return {
         userId: "",
-        error: new Error("Auth user creation succeeded but returned no user ID."),
+        isNewUser: false,
+        error: new Error(`Authentication user exists for ${email} but record could not be retrieved.`),
       };
     }
 
-    console.log(`[Register API] Created Auth user via admin API: ${userId}`);
-    return { userId, error: null };
+    const existingAuthId = existingUser.id.trim();
+
+    // 4. Check if this Auth user is already linked to an active team or member in the database
+    const [memCheck, teamCheck] = await Promise.all([
+      supabase
+        .from("members")
+        .select("id, name, email, team_id, teams(name)")
+        .or(`id.eq.${existingAuthId},email.ilike.${email}`)
+        .maybeSingle(),
+      supabase
+        .from("teams")
+        .select("id, name")
+        .eq("captain_id", existingAuthId)
+        .maybeSingle(),
+    ]);
+
+    const activeTeamName =
+      (memCheck.data?.teams as unknown as { name?: string })?.name ||
+      teamCheck.data?.name;
+
+    if (memCheck.data || teamCheck.data) {
+      console.warn(
+        `[Register API] Auth user ${existingAuthId} is actively registered under team "${activeTeamName || "unknown"}"`
+      );
+      return {
+        userId: existingAuthId,
+        isNewUser: false,
+        error: null,
+        conflictDetails: {
+          isRegisteredTeam: true,
+          teamName: activeTeamName || undefined,
+        },
+      };
+    }
+
+    // 5. Account is orphaned (no team or member record). Adopt and update it.
+    console.log(`[Register API] Adopting orphaned Auth user ${existingAuthId} for ${email}`);
+    const { error: updateError } = await supabase.auth.admin.updateUserById(
+      existingAuthId,
+      {
+        password,
+        email_confirm: true,
+        user_metadata: {
+          usn: cleanCaptainUsn.toLowerCase(),
+          role: role,
+        },
+        app_metadata: {
+          role: role,
+        },
+      }
+    );
+
+    if (updateError) {
+      console.error(`[Register API] Failed to update orphaned Auth user ${existingAuthId}:`, updateError.message);
+      return {
+        userId: "",
+        isNewUser: false,
+        error: new Error(`Failed to configure existing authentication account: ${updateError.message}`),
+      };
+    }
+
+    return { userId: existingAuthId, isNewUser: false, error: null };
   } catch (err: unknown) {
     const error = err instanceof Error ? err : new Error(String(err));
-    return { userId: "", error };
+    return { userId: "", isNewUser: false, error };
   }
 }
 
@@ -321,6 +446,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   let createdAuthUserId: string | null = null;
+  let isNewAuthUser = false;
   let createdTeamId: string | null = null;
   let db: SupabaseClient | null = null;
 
@@ -515,30 +641,29 @@ export async function POST(request: Request) {
     // Generate initial password
     const initialPassword = generateInitialPassword(cleanTeamName, cleanCaptainUsn);
 
-    // 7. Create Auth user for the captain using the service-role client (strictly required - never fabricate an identity)
-    const { userId, error: authError } = await createAuthUserWithRole(
+    // 7. Resolve Auth user for the captain (creates new or safely adopts orphaned account)
+    const authOutcome = await resolveCaptainAuthUser(
       db,
       captainEmail,
       initialPassword,
+      cleanCaptainUsn,
       "captain"
     );
 
-    if (authError || !userId || !userId.trim()) {
-      const errorMsg = authError?.message || "Failed to create authentication user.";
-      const errLower = errorMsg.toLowerCase();
-      if (
-        errLower.includes("already registered") ||
-        errLower.includes("already exists") ||
-        errLower.includes("duplicate")
-      ) {
-        return NextResponse.json(
-          {
-            error: `Captain USN "${cleanCaptainUsn}" is already registered in the system. Each participant can only register once.`,
-          },
-          { status: 409 }
-        );
-      }
+    if (authOutcome.conflictDetails?.isRegisteredTeam) {
+      const regTeam = authOutcome.conflictDetails.teamName
+        ? ` under team "${authOutcome.conflictDetails.teamName}"`
+        : "";
+      return NextResponse.json(
+        {
+          error: `Captain USN "${cleanCaptainUsn}" is already registered${regTeam}. Each participant can only register once.`,
+        },
+        { status: 409 }
+      );
+    }
 
+    if (authOutcome.error || !authOutcome.userId || !authOutcome.userId.trim()) {
+      const errorMsg = authOutcome.error?.message || "Failed to create authentication user.";
       console.error("[Register API] Fatal Auth creation failure:", errorMsg);
       return NextResponse.json(
         {
@@ -548,7 +673,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const captainAuthId = userId.trim();
+    const captainAuthId = authOutcome.userId.trim();
+    isNewAuthUser = authOutcome.isNewUser;
     createdAuthUserId = captainAuthId;
 
     // 8. Begin database operations - insert team first with captain_id: null
@@ -571,6 +697,7 @@ export async function POST(request: Request) {
       await rollbackRegistration({
         db,
         authUserId: captainAuthId,
+        isNewAuthUser,
         reason: `Team insert failure: ${teamError.message || "Unknown error"}`,
       });
       createdAuthUserId = null;
@@ -608,6 +735,7 @@ export async function POST(request: Request) {
         db,
         teamId,
         authUserId: captainAuthId,
+        isNewAuthUser,
         reason: `Captain member insert failure: ${captainError.message || "Unknown error"}`,
       });
       createdTeamId = null;
@@ -639,6 +767,7 @@ export async function POST(request: Request) {
         db,
         teamId,
         authUserId: captainAuthId,
+        isNewAuthUser,
         reason: `Team captain_id update failure: ${updateCapError.message}`,
       });
       createdTeamId = null;
@@ -678,6 +807,7 @@ export async function POST(request: Request) {
               db,
               teamId,
               authUserId: captainAuthId,
+              isNewAuthUser,
               reason: `Teammate insert failure (${tmUsn}): ${memRes.error.message}`,
             });
             createdTeamId = null;
@@ -737,6 +867,7 @@ export async function POST(request: Request) {
         db,
         teamId,
         authUserId: captainAuthId,
+        isNewAuthUser,
         reason: `Wallet insert failure: ${walletErrorMsg}`,
       });
       createdTeamId = null;
@@ -747,11 +878,19 @@ export async function POST(request: Request) {
       );
     }
 
+    // 13. Ensure identity alignment in PostgreSQL
+    try {
+      await db.rpc("align_identities");
+    } catch (alignErr) {
+      console.warn("[Register API] Notice running align_identities:", alignErr);
+    }
+
     // Clear tracking variables since registration completed successfully
     createdTeamId = null;
     createdAuthUserId = null;
+    isNewAuthUser = false;
 
-    // 13. Return success with genuinely needed fields (never expose credentials)
+    // 14. Return success with genuinely needed fields (never expose credentials)
     return NextResponse.json({
       success: true,
       teamId,
@@ -767,6 +906,7 @@ export async function POST(request: Request) {
         db,
         teamId: createdTeamId,
         authUserId: createdAuthUserId,
+        isNewAuthUser,
         reason: `Unhandled registration exception: ${msg}`,
       });
     }

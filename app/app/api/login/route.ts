@@ -191,6 +191,7 @@ export async function POST(request: Request) {
       try {
         await db.from("teams").update({ captain_id: authOutcome.userId }).eq("id", team.id);
         await db.from("members").update({ id: authOutcome.userId }).eq("team_id", team.id).ilike("email", captainEmail);
+        await db.rpc("align_identities");
       } catch (syncErr) {
         console.warn("[Login API] Notice syncing captain identity:", syncErr);
       }
@@ -371,6 +372,17 @@ async function establishAuthSession(
   }
 
   if (created === "exists") {
+    // Roster checks have strictly passed (team and captain exist and match).
+    // If Auth password has desynced, self-heal by updating password to initial password and confirming email.
+    const resynced = await resyncAuthUser(repair.db, email, repair.initialPassword);
+    if (resynced) {
+      success = await attempt([repair.initialPassword]);
+      if (success) {
+        await markSingleDeviceSession(authClient, success);
+        return success;
+      }
+    }
+
     return {
       ok: false,
       error:
@@ -502,6 +514,51 @@ async function confirmAuthUserEmail(
   } catch (err: unknown) {
     console.error(
       "[Login API] Email confirmation lookup failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+    return false;
+  }
+}
+
+/**
+ * Resyncs the password and confirms the email of an existing Auth account for a roster-verified captain.
+ */
+async function resyncAuthUser(
+  db: ReturnType<typeof getDbClient>,
+  email: string,
+  password: string
+): Promise<boolean> {
+  try {
+    const perPage = 200;
+    for (let page = 1; page <= 10; page += 1) {
+      const { data, error } = await db.auth.admin.listUsers({ page, perPage });
+      if (error || !data) return false;
+
+      const user = data.users.find(
+        (u) => (u.email ?? "").toLowerCase() === email.toLowerCase()
+      );
+      if (user) {
+        const { error: updateError } = await db.auth.admin.updateUserById(
+          user.id,
+          { password, email_confirm: true }
+        );
+        if (updateError) {
+          console.error(
+            "[Login API] Could not resync account password:",
+            updateError.message
+          );
+          return false;
+        }
+        console.warn(`[Login API] Resynced password and confirmed email for roster-verified captain: ${email}`);
+        return true;
+      }
+
+      if (data.users.length < perPage) return false;
+    }
+    return false;
+  } catch (err: unknown) {
+    console.error(
+      "[Login API] Resync exception:",
       err instanceof Error ? err.message : String(err)
     );
     return false;
