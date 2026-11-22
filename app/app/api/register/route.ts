@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getServiceDb } from "@/lib/serverDb";
+import { isValidUsn, normalizeUsn, USN_FORMAT_HINT } from "@/lib/usn";
 
 const DEFAULT_MAX_TEAMS = 60;
 const DEFAULT_REGISTRATION_OPEN = true;
@@ -484,11 +485,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const USN_PATTERN = /^4MT\d{2}[A-Z]{2}\d{3}$/i;
-    if (!USN_PATTERN.test(captain.usn.trim())) {
+    if (!isValidUsn(captain.usn)) {
       return NextResponse.json(
         {
-          error: `Invalid Captain USN "${captain.usn}". Must follow pattern 4MT2XBBMMM (e.g., 4MT24CS001).`,
+          error: `Invalid Captain USN "${captain.usn}". Must follow pattern ${USN_FORMAT_HINT}.`,
         },
         { status: 400 }
       );
@@ -497,10 +497,10 @@ export async function POST(request: Request) {
     if (Array.isArray(members)) {
       for (const tm of members) {
         if (tm.name?.trim() && tm.usn?.trim()) {
-          if (!USN_PATTERN.test(tm.usn.trim())) {
+          if (!isValidUsn(tm.usn)) {
             return NextResponse.json(
               {
-                error: `Invalid USN "${tm.usn}" for member "${tm.name}". Must follow pattern 4MT2XBBMMM (e.g., 4MT24CS002).`,
+                error: `Invalid USN "${tm.usn}" for member "${tm.name}". Must follow pattern ${USN_FORMAT_HINT}.`,
               },
               { status: 400 }
             );
@@ -510,7 +510,7 @@ export async function POST(request: Request) {
     }
 
     const cleanTeamName = teamName.trim();
-    const cleanCaptainUsn = captain.usn.trim().toUpperCase();
+    const cleanCaptainUsn = normalizeUsn(captain.usn);
     const captainEmail = `${cleanCaptainUsn.toLowerCase()}@mite.ac.in`;
     const captainSemester = captain.semester.trim();
     const captainPhone = captain.phone.trim();
@@ -527,7 +527,7 @@ export async function POST(request: Request) {
     if (Array.isArray(members)) {
       members.forEach((tm, idx) => {
         if (tm.name?.trim() && tm.usn?.trim()) {
-          const u = tm.usn.trim().toUpperCase();
+          const u = normalizeUsn(tm.usn);
           allUsnEntries.push({
             usn: u,
             email: `${u.toLowerCase()}@mite.ac.in`,
@@ -566,6 +566,12 @@ export async function POST(request: Request) {
         { status: 500 }
       );
     }
+
+    const currentTeamCount = countRes.count ?? 0;
+    // Character index rotates 1..10 as teams register, then repeats.
+    // Formula: (current_team_count % 10) + 1 ensures 1-based indexing
+    // and cycles through 1..10 indefinitely.
+    const characterIndex = (currentTeamCount % 10) + 1;
 
     if (!isOpen) {
       return NextResponse.json(
@@ -688,6 +694,7 @@ export async function POST(request: Request) {
         name: cleanTeamName,
         captain_id: null,
         locked: false,
+        character_index: characterIndex,
       })
       .select("id")
       .single();
@@ -785,7 +792,7 @@ export async function POST(request: Request) {
     if (Array.isArray(members)) {
       for (const tm of members) {
         if (tm.name?.trim() && tm.usn?.trim()) {
-          const tmUsn = tm.usn.trim().toUpperCase();
+          const tmUsn = normalizeUsn(tm.usn);
           const tmEmail = `${tmUsn.toLowerCase()}@mite.ac.in`;
           const tmPhone = tm.phone?.trim() || null;
           const teammateMemberId = randomUUID();

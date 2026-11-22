@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { FigmaHeaderLogos } from "@/components/shared/FigmaHeaderLogos";
 import { supabase } from "@/lib/supabase";
+import { isValidUsn, normalizeUsn, USN_FORMAT_HINT } from "@/lib/usn";
 
 export const FigmaLoginForm: React.FC = () => {
   const router = useRouter();
@@ -28,10 +29,9 @@ export const FigmaLoginForm: React.FC = () => {
       return;
     }
 
-    const USN_PATTERN = /^4MT\d{2}[A-Z]{2}\d{3}$/i;
-    const cleanCaptainUsn = captainUsn.trim().toUpperCase();
-    if (!USN_PATTERN.test(cleanCaptainUsn)) {
-      setError("Captain USN must follow pattern 4MT2XBBMMM (e.g., 4MT24CS001).");
+    const cleanCaptainUsn = normalizeUsn(captainUsn);
+    if (!isValidUsn(cleanCaptainUsn)) {
+      setError(`Captain USN must follow pattern ${USN_FORMAT_HINT}.`);
       return;
     }
 
@@ -130,7 +130,7 @@ export const FigmaLoginForm: React.FC = () => {
             <input
               type={showUsn ? "text" : "password"}
               required
-              placeholder="Captain USN (e.g. 4MT24CS001)"
+              placeholder="Captain USN (e.g. 4MT24CS001 / MT26CS001)"
               value={captainUsn}
               maxLength={10}
               autoComplete="current-password"
@@ -155,8 +155,9 @@ export const FigmaLoginForm: React.FC = () => {
           </div>
           <p className="text-[11px] text-slate-400 text-left pl-4 pt-1 font-sans">
             Captain USN acts as your password (Format:{" "}
-            <span className="font-mono font-medium text-slate-500">4MT2XBBMMM</span>).
-            Teammates cannot log in.
+            <span className="font-mono font-medium text-slate-500">4MT2XBBMMM</span> or{" "}
+            <span className="font-mono font-medium text-slate-500">MT2XBBMMM</span> for
+            first-years). Teammates cannot log in.
           </p>
         </div>
 

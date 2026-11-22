@@ -78,6 +78,7 @@ interface TeamData {
   assignedProblems: AssignedProblem[];
   isAuctionLive: boolean;
   submission?: Submission | null;
+  characterIndex: number;
 }
 
 export default function ProfilePage() {
@@ -237,7 +238,7 @@ export default function ProfilePage() {
 
   const isSubmitted = !!team.submission;
   const captainMember = team.members.find((m) => m.isCaptain);
-  const characterIndex = ((team.members.length - 1) % 10) + 1;
+  const characterIndex = team.characterIndex ?? 0;
 
   return (
     <div className="min-h-screen bg-[#141518] text-white selection:bg-[#fe5102] selection:text-white flex flex-col justify-between p-4 sm:p-8 md:p-12 font-sans select-none">

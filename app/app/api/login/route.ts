@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { getDbClient } from "@/lib/supabaseServer";
+import { isValidUsn, normalizeUsn, USN_FORMAT_HINT } from "@/lib/usn";
 
 /**
  * Login for registered teams.
@@ -39,15 +40,13 @@ export async function POST(request: Request) {
       );
     }
 
-    // Strict USN pattern: 4MT2XBBMMM (e.g., 4MT24CS001)
-    const USN_PATTERN = /^4MT\d{2}[A-Z]{2}\d{3}$/i;
-    const cleanCaptainUsn = rawCaptainUsn.replace(/[\s-]/g, "");
+    // Accepted USN patterns: 4MT2XBBMMM / 5MT2XBBMMM / MT2XBBMMM (first-years)
+    const cleanCaptainUsn = normalizeUsn(rawCaptainUsn);
 
-    if (!USN_PATTERN.test(cleanCaptainUsn)) {
+    if (!isValidUsn(cleanCaptainUsn)) {
       return NextResponse.json(
         {
-          error:
-            "Invalid Captain USN format. Must follow pattern 4MT2XBBMMM (e.g., 4MT24CS001).",
+          error: `Invalid Captain USN format. Must follow pattern ${USN_FORMAT_HINT}.`,
         },
         { status: 400 }
       );

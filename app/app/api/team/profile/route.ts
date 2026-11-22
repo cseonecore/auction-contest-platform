@@ -303,6 +303,7 @@ export async function GET(request: Request) {
         assignedProblems,
         isAuctionLive,
         submission: latestSubmission || null,
+        characterIndex: (team as any).character_index ?? 0,
       },
     });
   } catch (err: unknown) {
