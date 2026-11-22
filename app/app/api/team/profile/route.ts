@@ -54,7 +54,7 @@ export async function GET(request: Request) {
     if (teamId) {
       const { data, error } = await db
         .from("teams")
-        .select("id, name, captain_id, locked, created_at")
+        .select("id, name, captain_id, locked, created_at, character_index")
         .eq("id", teamId)
         .maybeSingle();
 
@@ -68,7 +68,7 @@ export async function GET(request: Request) {
       const cleanTeamName = teamName.trim();
       const { data, error } = await db
         .from("teams")
-        .select("id, name, captain_id, locked, created_at")
+        .select("id, name, captain_id, locked, created_at, character_index")
         .ilike("name", cleanTeamName)
         .maybeSingle();
 
@@ -82,7 +82,7 @@ export async function GET(request: Request) {
         const compactName = cleanTeamName.replace(/\s+/g, "");
         const { data: altTeam } = await db
           .from("teams")
-          .select("id, name, captain_id, locked, created_at")
+          .select("id, name, captain_id, locked, created_at, character_index")
           .ilike("name", compactName)
           .maybeSingle();
         if (altTeam) team = altTeam;
@@ -303,7 +303,7 @@ export async function GET(request: Request) {
         assignedProblems,
         isAuctionLive,
         submission: latestSubmission || null,
-        characterIndex: (team as any).character_index ?? 0,
+        characterIndex: (team as any).character_index ?? 1,
       },
     });
   } catch (err: unknown) {

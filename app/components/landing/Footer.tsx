@@ -21,6 +21,11 @@ export const Footer = () => {
       email: "4MT24CS032@mite.ac.in",
     },
     {
+      name: "Dhanush U Billava",
+      phone: "+91 94495 58810",
+      email: "4MT24CS057@mite.ac.in",
+    },
+    {
       name: "Ananya Shetty",
       phone: "+91 72040 33497",
       email: "4MT24CS025@mite.ac.in",

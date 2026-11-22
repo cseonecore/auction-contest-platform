@@ -238,7 +238,8 @@ export default function ProfilePage() {
 
   const isSubmitted = !!team.submission;
   const captainMember = team.members.find((m) => m.isCaptain);
-  const characterIndex = team.characterIndex ?? 0;
+  // Use stored characterIndex from database; fallback to 1 if not set
+  const characterIndex = team.characterIndex ?? 1;
 
   return (
     <div className="min-h-screen bg-[#141518] text-white selection:bg-[#fe5102] selection:text-white flex flex-col justify-between p-4 sm:p-8 md:p-12 font-sans select-none">

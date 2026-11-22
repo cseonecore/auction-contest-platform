@@ -1,7 +1,7 @@
 "use client";
 
 const stats = [
-  { value: "20", label: "Maximum Teams", sub: "Limited spots" },
+  { value: "25", label: "Maximum Teams", sub: "Limited spots" },
   { value: "2–4", label: "Team Size", sub: "Members per team" },
   { value: "100", label: "Bidding Points", sub: "Per team at start" },
   { value: "2 hrs", label: "Build Window", sub: "+ 25 min extension" },
