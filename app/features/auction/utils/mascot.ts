@@ -1,27 +1,48 @@
 /**
  * Team Mascot avatar resolution utility for Bid2Build.
  * Maps team identities to the 10 mascot character assets located in /characters/.
+ *
+ * Canonical behavior: when a team has a character_index (1..10, from the
+ * teams.character_index database column), the mascot is
+ * `/characters/Character-0N.png` — the exact same file the /profile page
+ * displays for that team. Fallbacks use a deterministic hash of the
+ * identifier so every consumer agrees without extra state.
  */
 
-const MASCOT_COUNT = 10
+const MASCOT_COUNT = 10;
 
-export function getMascotSrc(identifier?: string | null, index?: number): string {
-  if (typeof index === 'number' && index >= 0) {
-    const num = (index % MASCOT_COUNT) + 1
-    return `/characters/Character-${num.toString().padStart(2, '0')}.png`
+/**
+ * Returns the canonical mascot src for a team.
+ * @param characterIndex The team's database character_index (1..10), when known.
+ * @param fallbackIdentifier Team id or name used for the hash fallback.
+ */
+export function getTeamMascotSrc(characterIndex?: number | null, fallbackIdentifier?: string | null): string {
+  if (
+    typeof characterIndex === 'number' &&
+    Number.isInteger(characterIndex) &&
+    characterIndex >= 1 &&
+    characterIndex <= MASCOT_COUNT
+  ) {
+    return `/characters/Character-${String(characterIndex).padStart(2, '0')}.png`;
   }
 
-  if (!identifier) {
-    return `/characters/Character-01.png`
-  }
-
-  // Consistent hash for stable mascot assignment per team
+  // Deterministic fallback assignment from an identifier.
+  const id = (fallbackIdentifier ?? String(characterIndex ?? '')).trim() || 'team';
   let hash = 0
-  for (let i = 0; i < identifier.length; i++) {
-    hash = (hash * 31 + identifier.charCodeAt(i)) >>> 0
+  for (let i = 0; i < id.length; i++) {
+    hash = (hash * 31 + id.charCodeAt(i)) >>> 0
   }
   const mascotNum = (hash % MASCOT_COUNT) + 1
   return `/characters/Character-${mascotNum.toString().padStart(2, '0')}.png`
+}
+
+/**
+ * Legacy-compatible wrapper: resolves a mascot src.
+ * Callers that used to pass `(id, index)` can keep passing the team's
+ * characterIndex as the first argument and an identifier as fallback.
+ */
+export function getMascotSrc(characterIndex?: number | null, fallbackIdentifier?: string | null): string {
+  return getTeamMascotSrc(characterIndex, fallbackIdentifier)
 }
 
 /**

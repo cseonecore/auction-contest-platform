@@ -14,11 +14,12 @@ export interface LeaderboardTeam {
   winningBid?: number;
   totalSpent?: number;
   winsCount?: number;
-  characterIndex?: number;
   /** Overrides the displayed number (e.g. custom monetary stat). */
   stat?: number;
   /** Eliminated teams render in dark red regardless of rank. */
   eliminated?: boolean;
+  /** The team's database character_index (1..10) — same source as /profile. */
+  characterIndex?: number | null;
 }
 
 interface LeaderboardCapsuleProps {
@@ -90,7 +91,9 @@ export function LeaderboardCapsule({
     return "bg-[#27272a] border-zinc-700/50 text-white/90";
   };
 
-  const mascotSrc = getMascotSrc(team.id || team.name, team.characterIndex || rank);
+  // Use the same mascot source as the /profile page: the DB character_index.
+  // Hash fallback applies only when the DB value is unavailable.
+  const mascotSrc = getMascotSrc(team.characterIndex, team.id || team.name);
 
   // Monetary value determination (fallback path for non-live consumers).
   const totalSpent =

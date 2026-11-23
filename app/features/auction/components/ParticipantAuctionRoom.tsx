@@ -107,7 +107,7 @@ export function ParticipantAuctionRoom() {
         balance: team.balance,
         currentBid: team.current_bid,
         eliminated: team.eliminated,
-        characterIndex: (index % 10) + 1,
+        characterIndex: team.character_index ?? (index % 10) + 1,
       })),
     [state.teams]
   );
@@ -243,7 +243,7 @@ export function ParticipantAuctionRoom() {
               <div className="flex-1 bg-[#1a1b1f] border border-zinc-800/80 rounded-2xl p-3 sm:p-4 flex items-center gap-3 shadow-xl">
                 <div className="w-13 h-13 rounded-full bg-orange-500/20 border border-orange-500/40 p-1 flex items-center justify-center shrink-0 overflow-hidden">
                   <Image
-                    src={getMascotSrc(myTeam?.id ?? identity.teamId ?? undefined, myTeam?.characterIndex ?? 1)}
+                    src={getMascotSrc(myTeam?.characterIndex ?? 1)}
                     alt={myTeam?.name ?? "Your team"}
                     width={46}
                     height={46}

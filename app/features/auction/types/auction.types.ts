@@ -72,6 +72,8 @@ export interface AuctionTeamState {
   balance: number;
   eliminated: boolean;
   current_bid: number;
+  /** DB character_index (1..10) — the same value the /profile page shows. */
+  character_index?: number | null;
 }
 
 export interface AuctionBid {
@@ -168,7 +170,7 @@ export const EMPTY_SETTINGS: AuctionSettings = {
   opening_window_seconds: 10,
   timer_extension_seconds: 5,
   bonus_time_seconds: 60,
-  solving_timer_seconds: 120,
+  solving_timer_seconds: 4500,
   starting_wallet_balance: 100,
   bonus_points_rate: { points: 1, per_unspent: 3 },
 };

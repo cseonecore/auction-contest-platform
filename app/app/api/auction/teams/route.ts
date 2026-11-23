@@ -25,6 +25,7 @@ export async function GET() {
         balance: number;
         current_bid: number;
         eliminated: boolean;
+        character_index?: number | null;
       }>;
     };
     const teams = state.teams ?? [];
@@ -37,7 +38,8 @@ export async function GET() {
         balance: team.balance ?? 0,
         currentBid: team.current_bid ?? 0,
         eliminated: Boolean(team.eliminated),
-        characterIndex: (index % 10) + 1,
+        // Prefer the DB character_index (the same source the /profile page uses).
+        characterIndex: team.character_index ?? (index % 10) + 1,
       })),      hasData: teams.length > 0,
     });
   } catch (err: unknown) {

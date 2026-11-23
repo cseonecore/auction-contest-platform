@@ -36,6 +36,10 @@ export interface Database {
           captain_id: string | null
           locked: boolean
           created_at: string
+          /** Team-specific add-on to the development time in seconds (028). Null inherits admin_dev_addon_seconds. */
+          dev_addon_seconds: number | null
+          /** Idempotent DQ timestamp: set by apply_dq_statuses() when deadline passes without a valid submission (028). */
+          dq_at: string | null
         }
         Insert: {
           id?: string
@@ -43,6 +47,8 @@ export interface Database {
           captain_id?: string | null
           locked?: boolean
           created_at?: string
+          dev_addon_seconds?: number | null
+          dq_at?: string | null
         }
         Update: {
           id?: string
@@ -50,6 +56,8 @@ export interface Database {
           captain_id?: string | null
           locked?: boolean
           created_at?: string
+          dev_addon_seconds?: number | null
+          dq_at?: string | null
         }
         Relationships: []
       }
@@ -485,6 +493,83 @@ export interface Database {
       is_admin: {
         Args: Record<PropertyKey, never>
         Returns: boolean
+      }
+      get_admin_dev_time_config: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
+      }
+      set_admin_dev_addon_seconds: {
+        Args: {
+          p_seconds: number
+        }
+        Returns: Json
+      }
+      get_contest_flow_state: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
+      }
+      start_dev_timer: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
+      }
+      reset_dev_timer: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
+      }
+      enable_submissions: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
+      }
+      get_team_dev_status: {
+        Args: {
+          p_team_id: string
+        }
+        Returns: Json
+      }
+      get_team_dev_duration_seconds: {
+        Args: {
+          p_team_id: string
+        }
+        Returns: number
+      }
+      get_team_dev_deadline: {
+        Args: {
+          p_team_id: string
+        }
+        Returns: string | null
+      }
+      set_team_dev_addon_seconds: {
+        Args: {
+          p_team_id: string
+          p_seconds: number
+        }
+        Returns: Json
+      }
+      apply_dq_statuses: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
+      get_top25_team_ids: {
+        Args: Record<PropertyKey, never>
+        Returns: string[]
+      }
+      sync_top25_team_locks: {
+        Args: Record<PropertyKey, never>
+        Returns: void
+      }
+      get_setting_bool: {
+        Args: {
+          p_key: string
+          p_default: boolean
+        }
+        Returns: boolean
+      }
+      get_setting_bigint: {
+        Args: {
+          p_key: string
+          p_default: number
+        }
+        Returns: number
       }
     }
 

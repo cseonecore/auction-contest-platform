@@ -93,6 +93,24 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Team not found." }, { status: 404 });
     }
 
+    // Team-specific development timer state (028). get_team_dev_status()
+    // computes the per-team duration (base + add-on + bonus) and applies
+    // DQ statuses idempotently before returning live window/DQ fields.
+    const { data: devStatusData } = await db
+      .rpc("get_team_dev_status", { p_team_id: team.id })
+      .single();
+    // get_team_dev_status() returns the JSON object directly (PostgREST
+    // scalar RPC). Keep the `.status` fallback for older wrappers.
+    const devStatusRaw = (devStatusData ?? {}) as Record<string, unknown>;
+    const devStatus =
+      devStatusRaw.status && typeof devStatusRaw.status === "object"
+        ? (devStatusRaw.status as Record<string, unknown>)
+        : devStatusRaw;
+    const devDeadline = devStatus.dev_deadline as string | null | undefined;
+    const devRemaining = devStatus.dev_timer_remaining_seconds as number | null | undefined;
+    const devTotal = devStatus.dev_timer_total_seconds as number | null | undefined;
+    const devOpensAt = devStatus.submission_opens_at as string | null | undefined;
+
     // 2. Fetch Team Members
     const { data: members, error: memErr } = await db
       .from("members")
@@ -112,7 +130,12 @@ export async function GET(request: Request) {
       .maybeSingle();
 
     // 4. Fetch Won Slots & Topics (Assigned Problems) with Dev Time & Bonus Data
-    const [{ data: wonSlots }, { data: devTimeSetting }, { data: bonuses }] = await Promise.all([
+    const [
+      { data: wonSlots },
+      { data: devTimeSetting },
+      { data: addonSetting },
+      { data: bonuses },
+    ] = await Promise.all([
       db
         .from("slots")
         .select(
@@ -125,18 +148,33 @@ export async function GET(request: Request) {
         .select("value")
         .eq("key", "solving_timer_seconds")
         .maybeSingle(),
+      // Admin-configured development time add-on (public.settings, admin-managed).
+      db
+        .from("settings")
+        .select("value")
+        .eq("key", "admin_dev_addon_seconds")
+        .maybeSingle(),
       db
         .from("bonus_transactions")
         .select("slot_id, bonus_seconds")
         .eq("team_id", team.id),
     ]);
 
+    // Base development time: 1h15m by default.
     const baseDevSeconds =
       typeof devTimeSetting?.value === "number"
         ? devTimeSetting.value
         : typeof devTimeSetting?.value === "string"
-          ? parseInt(devTimeSetting.value, 10) || 120
-          : 120;
+          ? parseInt(devTimeSetting.value, 10) || 4500
+          : 4500;
+
+    // Admin add-on development time (validated server-side; default 0).
+    const adminAddonSeconds =
+      typeof addonSetting?.value === "number"
+        ? Math.max(0, addonSetting.value)
+        : typeof addonSetting?.value === "string"
+          ? Math.max(0, parseInt(addonSetting.value, 10) || 0)
+          : 0;
 
     const bonusMap = new Map<string, number>();
     (bonuses || []).forEach((b: { slot_id: string; bonus_seconds: number }) => {
@@ -262,7 +300,8 @@ export async function GET(request: Request) {
     const assignedProblems = (wonSlots || []).map((slot: SlotRecord, idx: number) => {
       const topic = Array.isArray(slot.topics) ? slot.topics[0] : slot.topics;
       const sub = submissionBySlotId.get(slot.id);
-      const addOnSeconds = bonusMap.get(slot.id) ?? 0;
+      // Admin add-on + any auction bonus time, added to the base duration.
+      const addOnSeconds = adminAddonSeconds + (bonusMap.get(slot.id) ?? 0);
 
       return {
         id: slot.id,
@@ -304,6 +343,15 @@ export async function GET(request: Request) {
         isAuctionLive,
         submission: latestSubmission || null,
         characterIndex: (team as any).character_index ?? 1,
+        dev_timer_status: devStatus.dev_timer_status ?? null,
+        dev_timer_total_seconds: devTotal ?? null,
+        dev_timer_remaining_seconds: devRemaining ?? null,
+        dev_timer_started_at_ms: devStatus.dev_timer_started_at_ms ?? null,
+        dev_deadline: devDeadline ?? null,
+        submission_opens_at: devOpensAt ?? null,
+        dq_at: devStatus.dq_at ?? null,
+        dq_pending: Boolean(devStatus.dq_pending),
+        dev_timer_window_open: devStatus.submission_window_open === true,
       },
     });
   } catch (err: unknown) {

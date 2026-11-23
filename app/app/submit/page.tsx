@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useId, useCallback } from "react";
+import React, { useState, useEffect, useId, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -15,9 +15,16 @@ import {
   Lock,
   AlertTriangle,
   Info,
+  Download,
+  Ban,
 } from "lucide-react";
 import { B2BLogo } from "@/components/shared/B2BLogo";
 import { supabase } from "@/lib/supabase";
+import {
+  buildSubmissionCsvRows,
+  downloadSubmissionCsv,
+  type SubmissionCsvRow,
+} from "@/features/submission/utils/submissionCsv";
 
 interface AssignedProblem {
   id: string;
@@ -44,6 +51,11 @@ interface TeamData {
   name: string;
   balance: number;
   assignedProblems: AssignedProblem[];
+  // Per-team development timer state (migration 028, from /api/team/profile).
+  dev_timer_window_open?: boolean;
+  dev_deadline?: string | null;
+  submission_opens_at?: string | null;
+  dq_at?: string | null;
 }
 
 /**
@@ -64,6 +76,8 @@ export default function SubmitPage() {
   const [liveUrl, setLiveUrl] = useState("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [submissionsEnabled, setSubmissionsEnabled] = useState(false);
+  const [manualEnabled, setManualEnabled] = useState(false);
 
   const repoInputId = useId();
   const liveInputId = useId();
@@ -112,6 +126,16 @@ export default function SubmitPage() {
 
       setTeam(data.team);
 
+      // Fetch the central submissions-enabled state (public.settings).
+      // When disabled, the submission portal is closed for teams.
+      const { data: flowData } = await supabase.rpc("get_contest_flow_state");
+      const flow = flowData as {
+        submissions_enabled?: boolean;
+        submissions_manually_enabled?: boolean;
+      } | null;
+      setSubmissionsEnabled(Boolean(flow?.submissions_enabled));
+      setManualEnabled(Boolean(flow?.submissions_manually_enabled));
+
       const problems: AssignedProblem[] = data.team.assignedProblems ?? [];
       const firstWithSubmission = problems.find((p) => p.submission);
       const selected = firstWithSubmission ?? problems[0];
@@ -138,6 +162,38 @@ export default function SubmitPage() {
   const isRejected = existingSubmission?.status === "rejected";
   const isLocked = isApproved || isRejected;
 
+  // Team dev-timer gate (migration 028, from /api/team/profile):
+  //  - DQ'd teams are locked out;
+  //  - late submissions (after the personal deadline) are rejected;
+  //  - new submissions require the final 20-minute window, unless an admin
+  //    manually enabled the submission portal.
+  const devDeadline = team?.dev_deadline ? new Date(team.dev_deadline) : null;
+  const lateBlocked = devDeadline ? new Date().getTime() > devDeadline.getTime() : false;
+  const windowClosedEarly =
+    !team?.dq_at &&
+    team?.dev_timer_window_open !== true &&
+    !existingSubmission &&
+    !manualEnabled;
+
+  // CSV export of this team's recorded submissions (8-field shared util).
+  const myCsvRows: SubmissionCsvRow[] = useMemo(() => {
+    if (!team) return [];
+    return buildSubmissionCsvRows(
+      (team.assignedProblems ?? [])
+        .filter((p) => p.submission)
+        .map((p) => ({
+          team_name: team.name,
+          slot_id: p.id,
+          round: p.round,
+          topic_title: p.title,
+          repository_url: p.submission?.repository_url ?? "",
+          live_url: p.submission?.live_url ?? "",
+          status: p.submission?.status ?? "",
+          submitted_at: p.submission?.submitted_at ?? "",
+        }))
+    );
+  }, [team]);
+
   const handleSelectProblem = (problem: AssignedProblem) => {
     setActiveProblemId(problem.id);
     setRepoUrl(problem.submission?.repository_url ?? "");
@@ -149,6 +205,34 @@ export default function SubmitPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!team) return;
+
+    if (!submissionsEnabled) {
+      setErrorMsg(
+        "Submissions are currently closed. The submission portal will open once enabled by contest organizers."
+      );
+      return;
+    }
+
+    if (team.dq_at) {
+      setErrorMsg("Team has been disqualified and cannot submit.");
+      return;
+    }
+
+    if (lateBlocked) {
+      setErrorMsg("Submission deadline has passed; late submissions are rejected.");
+      return;
+    }
+
+    if (windowClosedEarly) {
+      if (!devDeadline) {
+        setErrorMsg("Development timer has not started yet; submission unavailable.");
+      } else if (team.submission_opens_at && new Date() < new Date(team.submission_opens_at)) {
+        setErrorMsg(`Submission window opens at ${new Date(team.submission_opens_at).toLocaleString()}.`);
+      } else {
+        setErrorMsg("Submission window is closed.");
+      }
+      return;
+    }
 
     if (!activeProblemId) {
       setErrorMsg("Choose the question you are answering.");
@@ -268,6 +352,16 @@ export default function SubmitPage() {
               <ArrowLeft className="w-4 h-4" />
               <span>Back to Profile</span>
             </Link>
+            {myCsvRows.length > 0 && (
+              <button
+                type="button"
+                onClick={() => downloadSubmissionCsv("my-submissions.csv", myCsvRows)}
+                className="text-white/90 hover:text-[#fe5102] transition-colors cursor-pointer font-medium inline-flex items-center gap-1.5"
+              >
+                <Download className="w-4 h-4" />
+                <span>Download Submissions CSV</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={handleLogout}
@@ -317,6 +411,44 @@ export default function SubmitPage() {
             Submitting for Team: <span className="text-white font-bold">{team?.name}</span>
           </p>
         </div>
+
+        {/* Submissions-portal notice (when disabled) */}
+        {!submissionsEnabled && !isApproved && (
+          <div className="bg-[#22242a] border border-white/10 rounded-2xl p-5 space-y-2 shadow-lg">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <h3 className="text-sm font-bold text-white mb-1">Submission Portal Closed</h3>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  Submissions are currently disabled. The portal will open automatically when the
+                  contest reaches the final 20 minutes of the development window.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Per-team dev-timer gate notices (migration 028) */}
+        {team?.dq_at && (
+          <div className="p-4 rounded-xl bg-rose-950/80 text-rose-300 border border-rose-500/30 text-xs font-semibold flex items-start gap-2">
+            <Ban className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+            <span>Team has been disqualified; submissions are locked.</span>
+          </div>
+        )}
+        {windowClosedEarly && (
+          <div className="p-4 rounded-xl bg-amber-950/80 text-amber-300 border border-amber-500/30 text-xs font-semibold">
+            {!devDeadline
+              ? "Development timer has not started yet; submission unavailable."
+              : team?.submission_opens_at && new Date() < new Date(team.submission_opens_at)
+              ? `Submission window opens at ${new Date(team.submission_opens_at).toLocaleString()}.`
+              : "Submission window is closed."}
+          </div>
+        )}
+        {lateBlocked && !team?.dq_at && (
+          <div className="p-4 rounded-xl bg-rose-950/80 text-rose-300 border border-rose-500/30 text-xs font-semibold">
+            Submission deadline has passed; late submissions are rejected.
+          </div>
+        )}
 
         {/* Assigned problems */}
         {team && team.assignedProblems.length > 0 ? (
@@ -459,7 +591,7 @@ export default function SubmitPage() {
                   id={repoInputId}
                   type="url"
                   required
-                  disabled={isLocked || submitting}
+                  disabled={isLocked || submitting || !submissionsEnabled}
                   placeholder="https://github.com/username/project"
                   value={repoUrl}
                   onChange={(e) => setRepoUrl(e.target.value)}
@@ -482,7 +614,7 @@ export default function SubmitPage() {
                 <input
                   id={liveInputId}
                   type="url"
-                  disabled={isLocked || submitting}
+                  disabled={isLocked || submitting || !submissionsEnabled}
                   placeholder="https://your-project.vercel.app"
                   value={liveUrl}
                   onChange={(e) => setLiveUrl(e.target.value)}
@@ -517,7 +649,7 @@ export default function SubmitPage() {
 
                 <button
                   type="submit"
-                  disabled={isLocked || submitting}
+                  disabled={isLocked || submitting || !submissionsEnabled || !!team?.dq_at || windowClosedEarly || lateBlocked}
                   className="bg-[#fe5102] hover:bg-[#d94502] text-white font-bold text-sm px-8 py-3 rounded-full transition-all cursor-pointer shadow-lg shadow-orange-500/25 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {submitting ? (

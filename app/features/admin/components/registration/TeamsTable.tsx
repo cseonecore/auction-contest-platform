@@ -15,18 +15,13 @@ interface TeamsTableProps {
   onLockFilterChange: (f: RegistrationLockFilter) => void;
   onRefresh: () => void;
   isLoading: boolean;
-  onToggleLock?: (teamId: string, currentLocked: boolean) => Promise<void>;
-  updatingLockTeamId?: string | null;
-  isGlobalUpdating?: boolean;
 
   // Selection & Bulk Action Props (Phase 5)
   selectedTeamIds?: string[];
   onToggleSelectTeam?: (teamId: string) => void;
   onSelectAll?: (teamIds: string[]) => void;
   onClearSelection?: () => void;
-  onBulkLock?: (locked: boolean) => Promise<void>;
   onRequestDelete?: () => void;
-  isBulkUpdating?: boolean;
 
   // Excel Export Props
   onExport?: () => void;
@@ -42,16 +37,11 @@ export function TeamsTable({
   onLockFilterChange,
   onRefresh,
   isLoading,
-  onToggleLock,
-  updatingLockTeamId,
-  isGlobalUpdating,
   selectedTeamIds = [],
   onToggleSelectTeam,
   onSelectAll,
   onClearSelection,
-  onBulkLock,
   onRequestDelete,
-  isBulkUpdating = false,
   onExport,
   isExporting = false,
 }: TeamsTableProps) {
@@ -59,10 +49,7 @@ export function TeamsTable({
   const [pageSize, setPageSize] = useState<number>(25);
   const [currentPage, setCurrentPage] = useState<number>(1);
 
-  const isAnyUpdating =
-    (updatingLockTeamId !== null && updatingLockTeamId !== undefined) ||
-    !!isGlobalUpdating ||
-    isBulkUpdating;
+  const isAnyUpdating = false;
 
   // Filtered and searched teams
   const filteredTeams = useMemo(() => {
@@ -122,8 +109,9 @@ export function TeamsTable({
   }, [teams, selectedTeamIds]);
 
   const selectedCount = selectedTeamIds.length;
-  const unlockedSelectedCount = selectedTeamsList.filter((t) => !t.locked).length;
-  const allSelectedAreLocked = selectedCount > 0 && unlockedSelectedCount === 0;
+  const lockedSelectedCount = selectedTeamsList.filter((t) => t.locked).length;
+  // Locked teams are Top 25 members: deletion is blocked for them (see RPC).
+  const hasLockedSelected = lockedSelectedCount > 0;
 
   // Check if all paginated teams on current page are selected
   const paginatedIds = useMemo(() => paginatedTeams.map((t) => t.id), [paginatedTeams]);
@@ -287,19 +275,19 @@ export function TeamsTable({
               {selectedCount} {selectedCount === 1 ? 'team' : 'teams'} selected
             </span>
 
-            {/* Lock Eligibility Status Pill */}
-            {allSelectedAreLocked ? (
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                All {selectedCount} locked (Eligible for deletion)
+            {/* Deletion eligibility pill (Top 25 semantics: locked ⇒ not deletable) */}
+            {hasLockedSelected ? (
+              <span
+                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-800"
+                title="Top 25 teams cannot be deleted."
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                {lockedSelectedCount} locked — Top 25 teams are not deletable
               </span>
             ) : (
-              <span
-                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800"
-                title="Only locked teams can be deleted. Use 'Lock Selected' first."
-              >
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                {unlockedSelectedCount} unlocked — Unlocked teams cannot be deleted. Lock them first.
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                All {selectedCount} unlocked — Deletable
               </span>
             )}
 
@@ -317,67 +305,21 @@ export function TeamsTable({
 
           {/* Action Buttons */}
           <div className="flex items-center flex-wrap gap-2">
-            {/* Lock Selected Button */}
-            {onBulkLock && (
-              <button
-                type="button"
-                disabled={isAnyUpdating || unlockedSelectedCount === 0}
-                onClick={() => onBulkLock(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-600 hover:bg-amber-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-xs"
-                title={
-                  unlockedSelectedCount === 0
-                    ? 'All selected teams are already locked'
-                    : `Lock ${unlockedSelectedCount} unlocked team(s)`
-                }
-              >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"
-                  />
-                </svg>
-                <span>Lock Selected</span>
-              </button>
-            )}
-
-            {/* Unlock Selected Button */}
-            {onBulkLock && (
-              <button
-                type="button"
-                disabled={isAnyUpdating || selectedCount - unlockedSelectedCount === 0}
-                onClick={() => onBulkLock(false)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Unlock selected teams"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"
-                  />
-                </svg>
-                <span>Unlock Selected</span>
-              </button>
-            )}
-
             {/* Delete Selected Teams Button */}
             {onRequestDelete && (
               <button
                 type="button"
-                disabled={!allSelectedAreLocked || isAnyUpdating}
+                disabled={hasLockedSelected || isAnyUpdating}
                 onClick={onRequestDelete}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-colors shadow-xs ${
-                  allSelectedAreLocked && !isAnyUpdating
+                  !hasLockedSelected && !isAnyUpdating
                     ? 'bg-rose-600 text-white hover:bg-rose-700 cursor-pointer'
                     : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 cursor-not-allowed border border-zinc-300 dark:border-zinc-700'
                 }`}
                 title={
-                  !allSelectedAreLocked
-                    ? 'Deletion disabled: All selected teams must be locked first. Use "Lock Selected" above.'
-                    : `Permanently delete ${selectedCount} locked team(s)`
+                  hasLockedSelected
+                    ? 'Deletion disabled: locked teams are Top 25 members and cannot be deleted.'
+                    : `Permanently delete ${selectedCount} unlocked team(s)`
                 }
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -520,72 +462,7 @@ export function TeamsTable({
                       {/* Action */}
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          {onToggleLock && (() => {
-                            const isThisTeamUpdating = updatingLockTeamId === team.id;
-                            const isLockDisabled = isAnyUpdating || isLoading;
-                            const buttonTitle = isGlobalUpdating
-                              ? 'Global update in progress'
-                              : isAnyUpdating && !isThisTeamUpdating
-                              ? 'Update in progress'
-                              : team.locked
-                              ? 'Unlock team'
-                              : 'Lock team';
-
-                            return (
-                              <button
-                                type="button"
-                                disabled={isLockDisabled}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (isLockDisabled) return;
-                                  void onToggleLock(team.id, team.locked);
-                                }}
-                                className={`inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-md border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                                  team.locked
-                                    ? 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/60'
-                                    : 'text-zinc-700 dark:text-zinc-300 bg-zinc-50 dark:bg-zinc-800/60 border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-700'
-                                }`}
-                                title={buttonTitle}
-                              >
-                                {isThisTeamUpdating ? (
-                                  <span
-                                    className={`w-3 h-3 border-2 border-t-transparent rounded-full animate-spin ${
-                                      team.locked ? 'border-amber-600' : 'border-zinc-600'
-                                    }`}
-                                  />
-                                ) : team.locked ? (
-                                  <svg
-                                    className="w-3 h-3 shrink-0"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                  >
-                                    <path
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth={2}
-                                      d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"
-                                    />
-                                  </svg>
-                                ) : (
-                                  <svg
-                                    className="w-3 h-3 shrink-0"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                  >
-                                    <path
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth={2}
-                                      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"
-                                    />
-                                  </svg>
-                                )}
-                                <span>{team.locked ? 'Unlock' : 'Lock'}</span>
-                              </button>
-                            );
-                          })()}
+                          
                           <button
                             type="button"
                             onClick={(e) => {

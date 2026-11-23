@@ -23,6 +23,8 @@ interface RawTeamQueryResult {
   captain_id: string | null;
   locked: boolean;
   created_at: string;
+  dev_addon_seconds?: number | null;
+  dq_at?: string | null;
   members: MemberRow[] | null;
   wallets: { balance: number }[] | { balance: number } | null;
 }
@@ -84,14 +86,21 @@ export function parseCaptainMetadata(college?: string | null): {
   return { semester, phone, collegeName };
 }
 
+/** True when PostgREST reports the 028 dev-timer teams columns as missing. */
+function isMissingDevTimerColumnsError(message?: string): boolean {
+  if (!message) return false;
+  return message.includes('dev_addon_seconds') || message.includes('dq_at');
+}
+
 /**
  * Fetches all registered teams with their members and wallet information.
  * Uses the authenticated Supabase client respecting RLS.
  */
 export async function fetchRegisteredTeams(): Promise<ServiceResult<RegisteredTeamWithRelations[]>> {
   try {
-    // Primary query selecting members.phone from PostgreSQL.
-    // If Migration 011 has not yet been applied, gracefully falls back to the schema without phone column.
+    // 1. Primary query selecting members.phone from PostgreSQL + 028 dev-timer columns.
+    //    - If Migration 011 has not yet been applied, gracefully falls back to the schema without the phone column.
+    //    - If Migration 028 has not yet been applied, gracefully falls back to the schema without dev-timer columns.
     let queryResult: {
       data: unknown;
       error: { message?: string } | null;
@@ -103,6 +112,8 @@ export async function fetchRegisteredTeams(): Promise<ServiceResult<RegisteredTe
         captain_id,
         locked,
         created_at,
+        dev_addon_seconds,
+        dq_at,
         members (
           id,
           team_id,
@@ -118,6 +129,33 @@ export async function fetchRegisteredTeams(): Promise<ServiceResult<RegisteredTe
       `)
       .order('created_at', { ascending: false });
 
+    // 2. Retry without the 028 dev-timer columns when the DB predates 028.
+    if (queryResult.error && isMissingDevTimerColumnsError(queryResult.error.message)) {
+      queryResult = await supabase
+        .from('teams')
+        .select(`
+          id,
+          name,
+          captain_id,
+          locked,
+          created_at,
+          members (
+            id,
+            team_id,
+            name,
+            email,
+            college,
+            phone,
+            created_at
+          ),
+          wallets (
+            balance
+          )
+        `)
+        .order('created_at', { ascending: false });
+    }
+
+    // 3. Legacy fallback: retry without the phone column when the DB predates 011.
     if (
       queryResult.error &&
       (queryResult.error.message?.includes('phone') ||
@@ -205,6 +243,8 @@ export async function fetchRegisteredTeams(): Promise<ServiceResult<RegisteredTe
         captain_id: rawTeam.captain_id,
         locked: !!rawTeam.locked,
         created_at: rawTeam.created_at,
+        dev_addon_seconds: rawTeam.dev_addon_seconds ?? null,
+        dq_at: rawTeam.dq_at ?? null,
         members,
         wallet,
         captain,

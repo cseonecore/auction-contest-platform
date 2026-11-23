@@ -148,6 +148,77 @@ export async function POST(request: Request) {
 
     const teamId = membership.team_id;
 
+    // Team-specific development timer gate (028):
+    //  - reject while the team is disqualified (DQ applied idempotently).
+    //  - reject after the team's personal deadline has passed (late).
+    //  - new submissions require the final 20-minute window to be open,
+    //    unless the submission portal was manually enabled by an admin
+    //    (global manual override; never shortens the deadline).
+    const { data: devStatusData, error: devStatusErr } = await service
+      .rpc("get_team_dev_status", { p_team_id: teamId })
+      .single();
+    if (devStatusErr) {
+      return NextResponse.json(
+        { error: "Failed to check team development status." },
+        { status: 500 }
+      );
+    }
+    // get_team_dev_status() returns the JSON object directly (PostgREST
+    // scalar RPC). Keep the `.status` fallback for older wrappers.
+    const devStatusRaw = (devStatusData ?? {}) as Record<string, unknown>;
+    const teamStatus =
+      devStatusRaw.status && typeof devStatusRaw.status === "object"
+        ? (devStatusRaw.status as Record<string, unknown>)
+        : devStatusRaw;
+    const devDeadlineRaw = teamStatus.dev_deadline as string | null;
+    const devDeadline = devDeadlineRaw ? new Date(devDeadlineRaw) : null;
+    const serverTimeRaw = teamStatus.server_time as string | null;
+    const now = serverTimeRaw ? new Date(serverTimeRaw) : new Date();
+
+    if (teamStatus.dq_at) {
+      return NextResponse.json(
+        { error: "Team has been disqualified and cannot submit." },
+        { status: 403 }
+      );
+    }
+    if (devDeadline && now > devDeadline) {
+      return NextResponse.json(
+        { error: "Submission deadline has passed; late submissions are rejected." },
+        { status: 403 }
+      );
+    }
+
+    const { data: flowData } = await service.rpc("get_contest_flow_state").single();
+    const manualEnabled = Boolean(
+      (flowData as { submissions_manually_enabled?: boolean } | null)?.submissions_manually_enabled
+    );
+    const serverTimeIso =
+      ((flowData as { server_time?: string | null } | null)?.server_time) ?? serverTimeRaw ?? now.toISOString();
+
+    if (
+      !teamStatus.has_submission &&
+      teamStatus.submission_window_open !== true &&
+      !manualEnabled
+    ) {
+      const opensAtRaw = teamStatus.submission_opens_at as string | null;
+      if (!devDeadline) {
+        return NextResponse.json(
+          { error: "Development timer has not started yet; submission unavailable." },
+          { status: 400 }
+        );
+      }
+      if (opensAtRaw && now < new Date(opensAtRaw)) {
+        return NextResponse.json(
+          { error: `Submission window opens at ${opensAtRaw}.` },
+          { status: 400 }
+        );
+      }
+      return NextResponse.json(
+        { error: "Submission window is closed." },
+        { status: 403 }
+      );
+    }
+
     // Verify auction slots won by this team
     const { data: wonSlots, error: slotsErr } = await service
       .from("slots")
@@ -211,7 +282,7 @@ export async function POST(request: Request) {
       const updatePayload = {
         repository_url: repoUrl.trim(),
         live_url: liveUrl?.trim() || null,
-        submitted_at: new Date().toISOString(),
+        submitted_at: serverTimeIso,
         status: "submitted",
       };
 
@@ -294,7 +365,7 @@ export async function POST(request: Request) {
       repository_url: repoUrl.trim(),
       live_url: liveUrl?.trim() || null,
       submitted_by: user.id,
-      submitted_at: new Date().toISOString(),
+      submitted_at: serverTimeIso,
       status: "submitted",
     };
 

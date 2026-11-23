@@ -11,8 +11,11 @@ import {
   Send,
   Loader2,
   ExternalLink,
+  Timer,
+  Ban,
 } from "lucide-react";
 import { B2BLogo } from "@/components/shared/B2BLogo";
+import { getTeamMascotSrc } from "@/features/auction/utils/mascot";
 
 interface Member {
   id?: string;
@@ -79,6 +82,105 @@ interface TeamData {
   isAuctionLive: boolean;
   submission?: Submission | null;
   characterIndex: number;
+  // Per-team development timer state (migration 028).
+  dev_timer_status: string | null;
+  dev_timer_total_seconds: number | null;
+  dev_timer_remaining_seconds: number | null;
+  dev_timer_started_at_ms: number | null;
+  dev_deadline: string | null;
+  submission_opens_at: string | null;
+  dq_at: string | null;
+  dq_pending: boolean;
+  dev_timer_window_open: boolean;
+}
+
+/** Compact form of "Xm Ys" for timer durations. */
+function formatTimer(seconds?: number | null): string {
+  const total = Math.max(0, Math.floor(seconds ?? 0));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m.toString().padStart(2, "0")}m ${s.toString().padStart(2, "0")}s`;
+}
+
+/** Live per-team development timer card (uses the per-team fields from /api/team/profile). */
+function TeamTimerCard({ team }: { team: TeamData }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 5000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const status = team.dev_timer_status;
+  const remaining = team.dev_timer_remaining_seconds ?? 0;
+  const deadline = team.dev_deadline ? new Date(team.dev_deadline) : null;
+  const opensAt = team.submission_opens_at ? new Date(team.submission_opens_at) : null;
+  const late = Boolean(deadline && now >= deadline.getTime());
+
+  const statusBadge = team.dq_at ? (
+    <span className="bg-[#ffe4e6] text-[#be123c] font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-2xs">
+      <Ban className="w-3 h-3" />
+      Disqualified
+    </span>
+  ) : status === "running" ? (
+    <span className="bg-[#dcfce7] text-[#15803d] font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-2xs">
+      <span className="w-2 h-2 rounded-full bg-[#15803d] animate-pulse" />
+      Running
+    </span>
+  ) : status === "finished" ? (
+    <span className="bg-[#e5e7eb] text-slate-800 font-bold px-2.5 py-0.5 rounded-full shadow-2xs">
+      Finished
+    </span>
+  ) : (
+    <span className="bg-[#fef9c3] text-[#854d0e] font-bold px-2.5 py-0.5 rounded-full shadow-2xs">
+      Not Started
+    </span>
+  );
+
+  return (
+    <div className="pt-2">
+      <div className="bg-[#22242a] rounded-2xl p-5 border border-white/5 space-y-3 shadow-md max-w-2xl">
+        <div className="flex items-center justify-between border-b border-white/5 pb-2.5">
+          <h2 className="text-sm font-semibold text-slate-400 tracking-wide uppercase flex items-center gap-2">
+            <Timer className="w-4 h-4 text-[#fe5102]" />
+            <span>Development Timer</span>
+          </h2>
+          {statusBadge}
+        </div>
+
+        {team.dq_at ? (
+          <div className="text-xs text-rose-300 font-semibold">
+            This team has been disqualified — no further submissions are accepted.
+          </div>
+        ) : (
+          <div className="space-y-2.5 text-xs text-slate-300 font-mono">
+            <div className="flex items-baseline gap-3">
+              <span className="text-2xl font-black text-white">{formatTimer(remaining)}</span>
+              <span className="text-slate-500">
+                of {formatTimer(team.dev_timer_total_seconds ?? 0)} remaining
+              </span>
+            </div>
+            <div className="text-[11px] text-slate-400">
+              Deadline: {deadline ? deadline.toLocaleString() : "—"}
+              {" · "}
+              Submission window opens: {opensAt ? opensAt.toLocaleString() : "—"}
+            </div>
+            <div>
+              <span className="font-semibold text-white">Submission Window: </span>
+              {team.dev_timer_window_open ? (
+                <span className="text-emerald-300 font-bold">Open — you can submit now.</span>
+              ) : late ? (
+                <span className="text-slate-400">Closed — deadline passed.</span>
+              ) : (
+                <span className="text-slate-400">
+                  Closed — opens at {opensAt ? opensAt.toLocaleString() : "—"}.
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default function ProfilePage() {
@@ -240,6 +342,8 @@ export default function ProfilePage() {
   const captainMember = team.members.find((m) => m.isCaptain);
   // Use stored characterIndex from database; fallback to 1 if not set
   const characterIndex = team.characterIndex ?? 1;
+  // Same canonical mascot source used by every leaderboard (DB value).
+  const teamMascotSrc = getTeamMascotSrc(characterIndex);
 
   return (
     <div className="min-h-screen bg-[#141518] text-white selection:bg-[#fe5102] selection:text-white flex flex-col justify-between p-4 sm:p-8 md:p-12 font-sans select-none">
@@ -276,7 +380,7 @@ export default function ProfilePage() {
             {/* Character Avatar */}
             <div className="w-18 h-18 sm:w-20 sm:h-20 rounded-full bg-white flex items-center justify-center shrink-0 border-2 border-slate-700/60 shadow-xl relative overflow-hidden">
               <Image
-                src={`/characters/Character-0${characterIndex}.png`}
+                src={teamMascotSrc}
                 alt="Team Character"
                 fill
                 sizes="(max-width: 640px) 72px, 80px"
@@ -349,6 +453,11 @@ export default function ProfilePage() {
             </div>
           </div>
         </div>
+
+        {/* ========================================================= */}
+        {/* SECTION 1b: DEVELOPMENT TIMER                             */}
+        {/* ========================================================= */}
+        <TeamTimerCard team={team} />
 
         {/* ========================================================= */}
         {/* SECTION 2: TEAM MEMBERS                                   */}

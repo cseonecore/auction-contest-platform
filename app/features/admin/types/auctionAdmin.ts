@@ -162,6 +162,8 @@ export interface ServiceResult<T> {
   success: boolean;
   data?: T;
   error?: string;
+  /** Non-fatal notice (e.g. a resilience fallback was used). */
+  warning?: string;
 }
 
 export type SlotStatusFilter = 'all' | SlotStatus;
@@ -259,6 +261,7 @@ export interface BiddingResultProblem {
   sold_at: string | null;
   base_dev_seconds: number;
   bonus_dev_seconds: number;
+  /** Base + admin add-on + awarded bonus time. */
   total_dev_seconds: number;
 }
 
@@ -281,13 +284,35 @@ export interface BiddingResultTeam {
   problems: BiddingResultProblem[];
   won_count: number;
   total_base_dev_seconds: number;
+  /** Total admin-configured development time add-on (base excluded). */
+  total_addon_dev_seconds?: number;
   total_bonus_dev_seconds: number;
+  /** Total = total_base + total_addon + total_bonus. */
   total_dev_seconds: number;
   /** True when the team acquired the 2-question qualification target. */
   qualified?: boolean;
   /** True when the team is currently eliminated. */
   eliminated?: boolean;
   elimination_reason?: string | null;
+}
+
+/** Admin-managed development time configuration from public.settings. */
+export interface AdminDevTimeConfig {
+  base_dev_seconds: number;
+  addon_dev_seconds: number;
+  total_dev_seconds: number;
+}
+
+/** Central contest flow state (development timer + submissions) for teams. */
+export interface ContestFlowState {
+  dev_timer_started_at_ms: number | null;
+  dev_timer_total_seconds: number;
+  dev_timer_remaining_seconds: number;
+  dev_timer_status: 'not_started' | 'running' | 'finished';
+  submissions_enabled: boolean;
+  submissions_manually_enabled: boolean;
+  submissions_source: 'none' | 'manual' | 'auto';
+  server_time: string | null;
 }
 
 export interface UseAdminAuctionOptions {

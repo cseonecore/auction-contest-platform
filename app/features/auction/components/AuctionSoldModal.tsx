@@ -50,7 +50,7 @@ export function AuctionSoldModal({
   if (!result) return null;
 
   const isSold = result.status === "sold";
-  const mascotSrc = getMascotSrc(result.winnerTeamId || result.winnerTeamName, result.mascotIndex);
+  const mascotSrc = getMascotSrc(result.mascotIndex, result.winnerTeamId || result.winnerTeamName);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md transition-all animate-in fade-in duration-300 select-none">

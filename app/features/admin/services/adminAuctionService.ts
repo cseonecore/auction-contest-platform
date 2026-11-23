@@ -522,22 +522,36 @@ export const fetchBiddingResults = async (): Promise<
 
 /** Fallback builder that aggregates bidding results directly from database tables if RPC is missing. */
 async function fetchBiddingResultsFallback(): Promise<BiddingResultTeam[]> {
-  // 1. Fetch solving timer setting
-  let baseDevSeconds = 120;
+  // 1. Fetch solving timer setting and the admin-managed add-on (both in
+  //    public.settings, authoritative via get_admin_dev_time_config as well).
+  let baseDevSeconds = 4500; // 1h15m base development time
+  let addonDevSeconds = 0;
   try {
-    const { data: settingRow } = await supabase
-      .from("settings")
-      .select("value")
-      .eq("key", "solving_timer_seconds")
-      .maybeSingle();
+    const [settingRes, addonRes] = await Promise.all([
+      supabase
+        .from("settings")
+        .select("value")
+        .eq("key", "solving_timer_seconds")
+        .maybeSingle(),
+      supabase
+        .from("settings")
+        .select("value")
+        .eq("key", "admin_dev_addon_seconds")
+        .maybeSingle(),
+    ]);
 
-    if (settingRow?.value != null) {
-      const val = Number(settingRow.value);
+    if (settingRes.data?.value != null) {
+      const val = Number(settingRes.data.value);
       if (!isNaN(val) && val > 0) baseDevSeconds = val;
     }
+    if (addonRes.data?.value != null) {
+      const val = Number(addonRes.data.value);
+      if (!isNaN(val) && val >= 0) addonDevSeconds = val;
+    }
   } catch {
-    // Keep default 120
+    // Keep defaults (4500 + 0)
   }
+  const totalDevSeconds = baseDevSeconds + addonDevSeconds;
 
   // 2. Fetch teams, members, wallets, topics, sold slots, bonus_transactions, eliminations in parallel
   const [
@@ -659,13 +673,14 @@ async function fetchBiddingResultsFallback(): Promise<BiddingResultTeam[]> {
         sold_at: s.sold_at,
         base_dev_seconds: baseDevSeconds,
         bonus_dev_seconds: bonusSecs,
-        total_dev_seconds: baseDevSeconds + bonusSecs,
+        total_dev_seconds: totalDevSeconds + bonusSecs,
       };
     });
 
     const wonCount = problemsList.length;
     const totalBaseDevSeconds = baseDevSeconds * wonCount;
-    const totalDevSeconds = totalBaseDevSeconds + totalBonusDevSeconds;
+    const totalAddonDevSeconds = addonDevSeconds * wonCount;
+    const totalDevSeconds = totalBaseDevSeconds + totalAddonDevSeconds + totalBonusDevSeconds;
     const isEliminated = activeElimByTeam.has(t.id);
 
     return {
@@ -681,6 +696,7 @@ async function fetchBiddingResultsFallback(): Promise<BiddingResultTeam[]> {
       problems: problemsList,
       won_count: wonCount,
       total_base_dev_seconds: totalBaseDevSeconds,
+      total_addon_dev_seconds: totalAddonDevSeconds,
       total_bonus_dev_seconds: totalBonusDevSeconds,
       total_dev_seconds: totalDevSeconds,
       qualified: wonCount >= 2,

@@ -130,6 +130,7 @@ export function UnifiedBiddingResultsTable({
       'Problems Acquired Count',
       'Acquired Problems Details',
       'Total Base Dev Seconds',
+      'Total Admin Add-on Dev Seconds',
       'Total Bonus Dev Seconds',
       'Total Dev Seconds',
     ];
@@ -158,6 +159,7 @@ export function UnifiedBiddingResultsTable({
         t.won_count,
         `"${problemList.replace(/"/g, '""')}"`,
         t.total_base_dev_seconds,
+        t.total_addon_dev_seconds ?? 0,
         t.total_bonus_dev_seconds,
         t.total_dev_seconds,
       ].join(',');
@@ -302,6 +304,7 @@ export function UnifiedBiddingResultsTable({
                 <th className="py-3 px-3 text-right">Total Spent</th>
                 <th className="py-3 px-4">Acquired Problems &amp; Amounts</th>
                 <th className="py-3 px-3 text-right">Base Dev</th>
+                <th className="py-3 px-3 text-right">Admin Add-on</th>
                 <th className="py-3 px-3 text-right">Add-on Time</th>
                 <th className="py-3 px-4 text-right">Total Dev Time</th>
               </tr>
@@ -309,7 +312,7 @@ export function UnifiedBiddingResultsTable({
             <tbody className="divide-y divide-white/5 font-medium">
               {filteredTeams.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-zinc-500">
+                  <td colSpan={10} className="py-12 text-center text-zinc-500">
                     {isLoading ? 'Loading authoritative bidding results...' : 'No team results match your filter.'}
                   </td>
                 </tr>
@@ -420,6 +423,17 @@ export function UnifiedBiddingResultsTable({
                         {/* Base Dev Time */}
                         <td className="py-3.5 px-3 text-right font-mono text-zinc-300">
                           {formatDevTime(team.total_base_dev_seconds)}
+                        </td>
+
+                        {/* Admin Add-on Time (configured by admin on results page) */}
+                        <td className="py-3.5 px-3 text-right font-mono">
+                          {team.total_addon_dev_seconds && team.total_addon_dev_seconds > 0 ? (
+                            <span className="text-emerald-400 font-bold">
+                              +{formatDevTime(team.total_addon_dev_seconds)}
+                            </span>
+                          ) : (
+                            <span className="text-zinc-500">0 min</span>
+                          )}
                         </td>
 
                         {/* Add-on Time Earned */}

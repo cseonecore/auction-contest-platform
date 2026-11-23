@@ -17,13 +17,36 @@ import { AdminAuthGuard } from '@/features/admin/components/AdminAuthGuard';
 import { useAdminAuth } from '@/features/admin/hooks/useAdminAuth';
 import { UnifiedBiddingResultsTable } from '@/features/admin/components/auction/UnifiedBiddingResultsTable';
 import { fetchBiddingResults } from '@/features/admin/services/adminAuctionService';
-import type { BiddingResultTeam } from '@/features/admin/types/auctionAdmin';
+import {
+  fetchAdminDevTimeConfig,
+  saveAdminDevAddonMinutes,
+} from '@/features/admin/services/contestFlowService';
+import type { AdminDevTimeConfig, BiddingResultTeam } from '@/features/admin/types/auctionAdmin';
+
+/** Formats seconds as "1h 15m" style strings. */
+function formatDevMinutes(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h`;
+  if (minutes > 0) return `${minutes} min`;
+  if (secs > 0) return `${secs}s`;
+  return '0 min';
+}
 
 function AdminResultsContent() {
   const { user, role, signOut } = useAdminAuth();
   const [teams, setTeams] = useState<BiddingResultTeam[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Development time add-on configuration
+  const [devConfig, setDevConfig] = useState<AdminDevTimeConfig | null>(null);
+  const [addonInput, setAddonInput] = useState('0');
+  const [isSavingAddon, setIsSavingAddon] = useState(false);
+  const [addonFeedback, setAddonFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const loadData = useCallback(async (silent = false) => {
     if (!silent) setIsLoading(true);
@@ -61,6 +84,54 @@ function AdminResultsContent() {
     return () => clearInterval(interval);
   }, [loadData]);
 
+  // Development time add-on: load the authoritative config once on mount.
+  const loadDevConfig = useCallback(async () => {
+    const res = await fetchAdminDevTimeConfig();
+    if (res.success && res.data) {
+      setDevConfig(res.data);
+      setAddonInput(String(Math.max(0, Math.round(res.data.addon_dev_seconds / 60))));
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadDevConfig();
+  }, [loadDevConfig]);
+
+  // Save the admin add-on (minutes). The 75-minute base time is never touched.
+  const handleSaveAddon = useCallback(async () => {
+    const minutes = Math.floor(Number(addonInput));
+    if (!Number.isFinite(minutes) || minutes < 0 || minutes > 600) {
+      setAddonFeedback({
+        type: 'error',
+        message: 'Add-on time must be a whole number of minutes between 0 and 600.',
+      });
+      return;
+    }
+
+    setIsSavingAddon(true);
+    setAddonFeedback(null);
+
+    const res = await saveAdminDevAddonMinutes(minutes);
+
+    if (res.success && res.data) {
+      setDevConfig(res.data);
+      setAddonInput(String(Math.max(0, Math.round(res.data.addon_dev_seconds / 60))));
+      setAddonFeedback({
+        type: 'success',
+        message: `Development add-on saved: ${Math.round(res.data.addon_dev_seconds / 60)} min. Total development time = ${formatDevMinutes(res.data.total_dev_seconds)}.`,
+      });
+      // Refresh the results table so team totals include the new add-on.
+      await loadData(true);
+    } else {
+      setAddonFeedback({
+        type: 'error',
+        message: res.error || 'Failed to save development time add-on.',
+      });
+    }
+
+    setIsSavingAddon(false);
+  }, [addonInput, loadData]);
+
   return (
     <div className="flex min-h-screen flex-col bg-[#0d0d0d] font-sans text-white select-none">
       <AdminHeader
@@ -83,6 +154,80 @@ function AdminResultsContent() {
             </p>
           </div>
         </div>
+
+        {/* Development Time Configuration — Base (75 min) + Admin Add-on */}
+        {devConfig && (
+          <div className="mb-6 p-5 rounded-xl border border-white/10 bg-[#16171b] shadow-xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-white/10">
+              <div>
+                <h2 className="text-sm font-bold text-white tracking-tight">
+                  Development Time Configuration
+                </h2>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Total development time = Base ({formatDevMinutes(devConfig.base_dev_seconds)}) + Admin add-on.
+                  Changes appear in team results below.
+                </p>
+              </div>
+              <span className="text-[11px] text-zinc-400 font-mono text-right">
+                Current total: {formatDevMinutes(devConfig.total_dev_seconds)} (base {formatDevMinutes(devConfig.base_dev_seconds)} + add-on {Math.round(devConfig.addon_dev_seconds / 60)} min)
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block mb-1.5">
+                  Admin Add-on Time (minutes)
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    max={600}
+                    step={1}
+                    value={addonInput}
+                    onChange={(e) => setAddonInput(e.target.value)}
+                    disabled={isSavingAddon}
+                    className="w-36 px-3 py-2 text-xs font-mono rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:ring-2 focus:ring-[#fe5102] disabled:opacity-50"
+                    placeholder="0"
+                  />
+                  <button
+                    type="button"
+                    disabled={isSavingAddon}
+                    onClick={() => void handleSaveAddon()}
+                    className="px-4 py-2 text-xs font-semibold rounded-lg bg-[#fe5102] hover:bg-[#d94502] text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                  >
+                    {isSavingAddon ? 'Saving…' : 'Save Add-on'}
+                  </button>
+                </div>
+                <p className="text-[11px] text-zinc-500 mt-1.5">
+                  Saved add-on: {Math.round(devConfig.addon_dev_seconds / 60)} minutes. The base development time of {formatDevMinutes(devConfig.base_dev_seconds)} is never changed by saving the add-on.
+                </p>
+                {addonFeedback && (
+                  <p
+                    className={`text-xs font-semibold mt-1.5 ${
+                      addonFeedback.type === 'success' ? 'text-emerald-400' : 'text-rose-300'
+                    }`}
+                  >
+                    {addonFeedback.message}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex flex-col justify-center">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-2xl font-black font-mono text-white">
+                    {formatDevMinutes(devConfig.total_dev_seconds)}
+                  </span>
+                  <span className="text-[11px] text-zinc-400 uppercase tracking-wider font-bold">Total Dev Time</span>
+                </div>
+                <div className="mt-1 text-[11px] font-mono text-zinc-500">
+                  = Base {formatDevMinutes(devConfig.base_dev_seconds)} + Add-on{' '}
+                  {Math.round(devConfig.addon_dev_seconds / 60)} min
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {error && (
           <div className="mb-6 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-semibold">

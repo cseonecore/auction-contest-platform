@@ -13,26 +13,17 @@ import {
 import {
   fetchRegisteredTeams,
   calculateRegistrationStats,
-  updateTeamLockStatus,
-  updateAllTeamsLockStatus,
   fetchRegistrationControlSettings,
   updateRegistrationOpenStatus,
   updateMaxTeamsCapacity,
   fetchDeletedTeamsCount,
   deleteTeams,
-  updateSelectedTeamsLockStatus,
 } from '@/features/admin/services/registrationService';
 import { RegistrationStats } from '@/features/admin/components/registration/RegistrationStats';
 import { TeamsTable } from '@/features/admin/components/registration/TeamsTable';
 import { TeamDetailsModal } from '@/features/admin/components/registration/TeamDetailsModal';
 import { TeamDeleteModal } from '@/features/admin/components/registration/TeamDeleteModal';
 import { exportTeamDetailsToExcel } from '@/features/admin/services/registrationExportService';
-
-interface GlobalConfirmState {
-  isOpen: boolean;
-  action: 'lock' | 'unlock';
-  affectedCount: number;
-}
 
 interface ControlConfirmModalState {
   isOpen: boolean;
@@ -57,11 +48,7 @@ function AdminRegistrationContent() {
   const [lockFilter, setLockFilter] = useState<RegistrationLockFilter>('all');
   const [selectedTeam, setSelectedTeam] = useState<RegisteredTeamWithRelations | null>(null);
 
-  // Lock management states
-  const [updatingLockTeamId, setUpdatingLockTeamId] = useState<string | null>(null);
-  const [isGlobalUpdating, setIsGlobalUpdating] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<ActionFeedbackState | null>(null);
-  const [globalConfirmModal, setGlobalConfirmModal] = useState<GlobalConfirmState | null>(null);
 
   // Registration control and capacity states (Phase 3A)
   const [controlSettings, setControlSettings] = useState<RegistrationControlSettings>({
@@ -79,7 +66,6 @@ function AdminRegistrationContent() {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeletingTeams, setIsDeletingTeams] = useState(false);
   const [deleteErrorMessage, setDeleteErrorMessage] = useState<string | null>(null);
-  const [isBulkUpdating, setIsBulkUpdating] = useState(false);
 
   // Excel export state
   const [isExporting, setIsExporting] = useState(false);
@@ -155,132 +141,8 @@ function AdminRegistrationContent() {
     [teams, controlSettings, deletedTeamsCount]
   );
 
-  // Unified concurrency flag: true when ANY lock, control, deletion, or export operation is in flight
-  const isAnyUpdating =
-    updatingLockTeamId !== null ||
-    isGlobalUpdating ||
-    isUpdatingControl ||
-    isBulkUpdating ||
-    isDeletingTeams ||
-    isExporting;
-
-  // Handler for individual team lock / unlock
-  const handleToggleTeamLock = useCallback(
-    async (teamId: string, currentLocked: boolean) => {
-      // Concurrency guard: reject if any update is already running
-      if (updatingLockTeamId !== null || isGlobalUpdating || isUpdatingControl) return;
-
-      setUpdatingLockTeamId(teamId);
-      setActionFeedback(null);
-
-      const targetLocked = !currentLocked;
-      const result = await updateTeamLockStatus(teamId, targetLocked);
-
-      if (!result.success) {
-        setActionFeedback({
-          type: 'error',
-          message: result.error || 'Failed to update team lock status.',
-        });
-        setUpdatingLockTeamId(null);
-        return;
-      }
-
-      // Update local state reactively
-      setTeams((prev) =>
-        prev.map((t) => (t.id === teamId ? { ...t, locked: targetLocked } : t))
-      );
-
-      // Keep open modal in sync if it represents this team
-      setSelectedTeam((prev) =>
-        prev && prev.id === teamId ? { ...prev, locked: targetLocked } : prev
-      );
-
-      const targetTeam = teams.find((t) => t.id === teamId);
-      const teamName = targetTeam ? targetTeam.name : 'Team';
-      setActionFeedback({
-        type: 'success',
-        message: `Team "${teamName}" was ${targetLocked ? 'locked' : 'unlocked'} successfully.`,
-      });
-
-      setUpdatingLockTeamId(null);
-    },
-    [updatingLockTeamId, isGlobalUpdating, isUpdatingControl, teams]
-  );
-
-  // Open global confirmation modal after validating affected count and concurrency
-  const handleOpenGlobalConfirm = useCallback(
-    (action: 'lock' | 'unlock') => {
-      // Concurrency guard: reject if any update is in flight
-      if (updatingLockTeamId !== null || isGlobalUpdating || isUpdatingControl) return;
-
-      const affectedCount =
-        action === 'lock'
-          ? teams.filter((t) => !t.locked).length
-          : teams.filter((t) => t.locked).length;
-
-      if (affectedCount === 0) {
-        setActionFeedback({
-          type: 'error',
-          message:
-            action === 'lock'
-              ? 'All teams are already locked.'
-              : 'All teams are already unlocked.',
-        });
-        return;
-      }
-
-      setGlobalConfirmModal({
-        isOpen: true,
-        action,
-        affectedCount,
-      });
-    },
-    [teams, updatingLockTeamId, isGlobalUpdating, isUpdatingControl]
-  );
-
-  // Execute global lock / unlock with double-submit and concurrency guards
-  const handleExecuteGlobalLockUnlock = useCallback(async () => {
-    // Concurrency guard: prevent duplicate submission or execution while busy
-    if (
-      !globalConfirmModal ||
-      isGlobalUpdating ||
-      updatingLockTeamId !== null ||
-      isUpdatingControl
-    )
-      return;
-
-    const targetLocked = globalConfirmModal.action === 'lock';
-    setIsGlobalUpdating(true);
-    setActionFeedback(null);
-
-    const result = await updateAllTeamsLockStatus(targetLocked);
-
-    if (!result.success) {
-      setActionFeedback({
-        type: 'error',
-        message: result.error || `Failed to ${targetLocked ? 'lock' : 'unlock'} all teams.`,
-      });
-      setIsGlobalUpdating(false);
-      setGlobalConfirmModal(null);
-      return;
-    }
-
-    const count = result.data?.updatedCount ?? 0;
-
-    // Reactively update all teams in state
-    setTeams((prev) => prev.map((t) => ({ ...t, locked: targetLocked })));
-
-    // Keep open modal in sync
-    setSelectedTeam((prev) => (prev ? { ...prev, locked: targetLocked } : null));
-
-    setActionFeedback({
-      type: 'success',
-      message: `Successfully ${targetLocked ? 'locked' : 'unlocked'} ${count} team(s).`,
-    });
-
-    setIsGlobalUpdating(false);
-    setGlobalConfirmModal(null);
-  }, [globalConfirmModal, isGlobalUpdating, updatingLockTeamId, isUpdatingControl]);
+  // Unified concurrency flag: true when ANY control, deletion, or export operation is in flight
+  const isAnyUpdating = isUpdatingControl || isDeletingTeams || isExporting;
 
   // Phase 5: Selection Handlers
   const handleToggleSelectTeam = useCallback((teamId: string) => {
@@ -297,57 +159,20 @@ function AdminRegistrationContent() {
     setSelectedTeamIds([]);
   }, []);
 
-  // Phase 5: Bulk Lock / Unlock for Selected Teams
-  const handleBulkLock = useCallback(
-    async (locked: boolean) => {
-      if (selectedTeamIds.length === 0 || isAnyUpdating) return;
-      setIsBulkUpdating(true);
-      setActionFeedback(null);
-
-      const result = await updateSelectedTeamsLockStatus(selectedTeamIds, locked);
-
-      if (!result.success) {
-        setActionFeedback({
-          type: 'error',
-          message: result.error || `Failed to ${locked ? 'lock' : 'unlock'} selected teams.`,
-        });
-        setIsBulkUpdating(false);
-        return;
-      }
-
-      const count = result.data?.updatedCount ?? selectedTeamIds.length;
-      const idSet = new Set(selectedTeamIds);
-
-      // Reactively update teams state
-      setTeams((prev) =>
-        prev.map((t) => (idSet.has(t.id) ? { ...t, locked } : t))
-      );
-
-      // Keep open modal in sync
-      setSelectedTeam((prev) => (prev && idSet.has(prev.id) ? { ...prev, locked } : prev));
-
-      setActionFeedback({
-        type: 'success',
-        message: `Successfully ${locked ? 'locked' : 'unlocked'} ${count} selected team(s).`,
-      });
-
-      setIsBulkUpdating(false);
-    },
-    [selectedTeamIds, isAnyUpdating]
-  );
-
-  // Phase 5: Open Delete Confirmation Modal (validates all selected teams are locked)
+  // Open Delete Confirmation Modal
+  // New locking rules: locked status is derived (Top 25 ⇒ Locked). Only
+  // unlocked teams outside the Top 25 are deletable.
   const handleRequestOpenDeleteModal = useCallback(() => {
     if (selectedTeamIds.length === 0 || isAnyUpdating) return;
 
     const idSet = new Set(selectedTeamIds);
     const targetTeams = teams.filter((t) => idSet.has(t.id));
-    const unlockedTeams = targetTeams.filter((t) => !t.locked);
+    const lockedTeams = targetTeams.filter((t) => t.locked);
 
-    if (unlockedTeams.length > 0) {
+    if (lockedTeams.length > 0) {
       setActionFeedback({
         type: 'error',
-        message: `Cannot delete unlocked teams. ${unlockedTeams.length} selected team(s) must be locked first.`,
+        message: `Cannot delete Top 25 teams. ${lockedTeams.length} selected team(s) are locked.`,
       });
       return;
     }
@@ -771,77 +596,7 @@ function AdminRegistrationContent() {
         </div>
       </div>
 
-      {/* Global Team Lock Actions Toolbar */}
-      <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-zinc-900 dark:text-zinc-100 text-sm">
-              Global Registration Lock Actions
-            </span>
-            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
-              Admin Only
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          {/* Lock All Teams Button */}
-          <button
-            type="button"
-            disabled={stats.unlockedTeams === 0 || isAnyUpdating || isLoading}
-            onClick={() => handleOpenGlobalConfirm('lock')}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            title={
-              updatingLockTeamId
-                ? 'Individual team update in progress'
-                : isGlobalUpdating
-                ? 'Global update in progress'
-                : stats.unlockedTeams === 0
-                ? 'All teams are already locked'
-                : `Lock ${stats.unlockedTeams} unlocked teams`
-            }
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"
-              />
-            </svg>
-            <span>Lock All ({stats.unlockedTeams})</span>
-          </button>
-
-          {/* Unlock All Teams Button */}
-          <button
-            type="button"
-            disabled={stats.lockedTeams === 0 || isAnyUpdating || isLoading}
-            onClick={() => handleOpenGlobalConfirm('unlock')}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg text-zinc-700 dark:text-zinc-300 bg-zinc-50 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            title={
-              updatingLockTeamId
-                ? 'Individual team update in progress'
-                : isGlobalUpdating
-                ? 'Global update in progress'
-                : stats.lockedTeams === 0
-                ? 'All teams are already unlocked'
-                : `Unlock ${stats.lockedTeams} locked teams`
-            }
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"
-              />
-            </svg>
-            <span>Unlock All ({stats.lockedTeams})</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Teams Table with Search, Filtering, Inline Lock Actions, and Phase 5 Bulk Selection */}
+      {/* Teams Table with Search, Filtering, Top 25 Status, and Phase 5 Bulk Selection */}
       <TeamsTable
         teams={teams}
         onSelectTeam={(team) => setSelectedTeam(team)}
@@ -851,33 +606,20 @@ function AdminRegistrationContent() {
         onLockFilterChange={setLockFilter}
         onRefresh={loadData}
         isLoading={isLoading}
-        onToggleLock={handleToggleTeamLock}
-        updatingLockTeamId={updatingLockTeamId}
-        isGlobalUpdating={isGlobalUpdating}
         selectedTeamIds={selectedTeamIds}
         onToggleSelectTeam={handleToggleSelectTeam}
         onSelectAll={handleSelectAll}
         onClearSelection={handleClearSelection}
-        onBulkLock={handleBulkLock}
         onRequestDelete={handleRequestOpenDeleteModal}
-        isBulkUpdating={isBulkUpdating}
         onExport={handleExportTeamDetails}
         isExporting={isExporting}
       />
 
-      {/* Team Details Modal with Lock Action */}
+      {/* Team Details Modal */}
       <TeamDetailsModal
         isOpen={selectedTeam !== null}
-        onClose={() => {
-          if (!updatingLockTeamId && !isGlobalUpdating) {
-            setSelectedTeam(null);
-          }
-        }}
+        onClose={() => setSelectedTeam(null)}
         team={selectedTeam}
-        onToggleLock={handleToggleTeamLock}
-        isUpdatingLock={updatingLockTeamId === selectedTeam?.id}
-        isGlobalUpdating={isGlobalUpdating}
-        isAnyUpdating={isAnyUpdating}
       />
 
       {/* Phase 5B: Team Delete Confirmation Modal */}
@@ -894,109 +636,6 @@ function AdminRegistrationContent() {
         selectedTeams={teams.filter((t) => selectedTeamIds.includes(t.id))}
         errorMessage={deleteErrorMessage}
       />
-
-      {/* Global Confirmation Modal */}
-      {globalConfirmModal?.isOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4"
-          onClick={() => {
-            if (!isGlobalUpdating) setGlobalConfirmModal(null);
-          }}
-        >
-          <div
-            className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-150"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start gap-3">
-              <div
-                className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
-                  globalConfirmModal.action === 'lock'
-                    ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400'
-                    : 'bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400'
-                }`}
-              >
-                {globalConfirmModal.action === 'lock' ? (
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"
-                    />
-                  </svg>
-                ) : (
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"
-                    />
-                  </svg>
-                )}
-              </div>
-
-              <div className="flex-1">
-                <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-50">
-                  {globalConfirmModal.action === 'lock' ? 'Lock All Teams?' : 'Unlock All Teams?'}
-                </h3>
-                <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1.5 leading-relaxed">
-                  {globalConfirmModal.action === 'lock' ? (
-                    <>
-                      This action will update{' '}
-                      <strong className="text-zinc-900 dark:text-zinc-100 font-bold">
-                        {globalConfirmModal.affectedCount} currently unlocked team(s)
-                      </strong>{' '}
-                      to <span className="font-semibold text-amber-600 dark:text-amber-400">Locked</span>.
-                    </>
-                  ) : (
-                    <>
-                      This action will update{' '}
-                      <strong className="text-zinc-900 dark:text-zinc-100 font-bold">
-                        {globalConfirmModal.affectedCount} currently locked team(s)
-                      </strong>{' '}
-                      to <span className="font-semibold text-emerald-600 dark:text-emerald-400">Unlocked</span>.
-                    </>
-                  )}
-                </p>
-                <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-2">
-                  Are you sure you want to proceed with this batch update?
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-6 flex items-center justify-end gap-2.5">
-              <button
-                type="button"
-                disabled={isGlobalUpdating}
-                onClick={() => {
-                  if (!isGlobalUpdating) setGlobalConfirmModal(null);
-                }}
-                className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={isGlobalUpdating || updatingLockTeamId !== null}
-                onClick={() => void handleExecuteGlobalLockUnlock()}
-                className={`inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                  globalConfirmModal.action === 'lock'
-                    ? 'bg-amber-600 hover:bg-amber-700'
-                    : 'bg-blue-600 hover:bg-blue-700'
-                }`}
-              >
-                {isGlobalUpdating && (
-                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                )}
-                <span>
-                  {globalConfirmModal.action === 'lock' ? 'Confirm Lock All' : 'Confirm Unlock All'}
-                </span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Registration Control & Capacity Confirmation Modal (Phase 3A) */}
       {controlConfirmModal?.isOpen && (

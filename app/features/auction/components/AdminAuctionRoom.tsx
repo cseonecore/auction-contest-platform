@@ -829,6 +829,7 @@ export function AdminAuctionRoom() {
         balance: t.balance,
         currentBid: t.current_bid,
         eliminated: t.eliminated,
+        character_index: t.character_index ?? null,
       }));
     }
     return teamAllocations.map((t) => ({
@@ -837,6 +838,7 @@ export function AdminAuctionRoom() {
       balance: t.wallet_balance,
       currentBid: 0,
       eliminated: false,
+      character_index: null,
     }));
   }, [state.teams, teamAllocations]);
 
@@ -852,8 +854,8 @@ export function AdminAuctionRoom() {
       roster.map((team, index) => ({
         ...team,
         winsCount: winsByTeam.get(team.id) ?? 0,
-        // Stable mascot per team (roster order, independent of rank).
-        characterIndex: (index % 10) + 1,
+        // Prefer the DB character_index (same source as the /profile page).
+        characterIndex: team.character_index ?? (index % 10) + 1,
       })),
       { leaderTeamId }
     );

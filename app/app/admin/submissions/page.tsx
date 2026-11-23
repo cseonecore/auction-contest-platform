@@ -16,6 +16,13 @@ import {
 } from "@/features/admin/services/adminAuctionService";
 import { useScoringRealtime } from "@/features/scoring/hooks/useScoringRealtime";
 import {
+  startDevTimer,
+  resetDevTimer,
+  enableSubmissions,
+  fetchContestFlowState,
+} from "@/features/admin/services/contestFlowService";
+import type { ContestFlowState } from "@/features/admin/types/auctionAdmin";
+import {
   Award,
   CheckCircle2,
   Clock,
@@ -31,7 +38,15 @@ import {
   Trophy,
   Coins,
   History,
+  Play,
+  Power,
+  Download,
 } from "lucide-react";
+import { TeamDevTimersPanel } from "@/features/admin/components/TeamDevTimersPanel";
+import {
+  buildSubmissionCsvRows,
+  downloadSubmissionCsv,
+} from "@/features/submission/utils/submissionCsv";
 
 interface SubmissionItem {
   id: string;
@@ -67,8 +82,32 @@ interface BonusHistoryEntry {
   created_at?: string;
 }
 
+/** Formats seconds as "MMm SSs". */
+function formatTimerTime(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m.toString().padStart(2, "0")}m ${s.toString().padStart(2, "0")}s`;
+}
+
+/**
+ * Safe defaults so the controls stay visible even if the contest-flow state
+ * cannot be loaded. The real values replace these as soon as the fetch (or its
+ * settings-table fallback) resolves.
+ */
+const DEFAULT_CONTEST_FLOW: ContestFlowState = {
+  dev_timer_started_at_ms: null,
+  dev_timer_total_seconds: 75 * 60,
+  dev_timer_remaining_seconds: 75 * 60,
+  dev_timer_status: "not_started",
+  submissions_enabled: false,
+  submissions_manually_enabled: false,
+  submissions_source: "none",
+  server_time: null,
+};
+
 function SubmissionsDashboardContent() {
-  const { user, role, signOut } = useAdminAuth();
+  const { user, role, isAdmin, signOut } = useAdminAuth();
 
   // Tab: 'submissions' or 'leaderboard'
   const [activeTab, setActiveTab] = useState<"submissions" | "leaderboard">("submissions");
@@ -84,6 +123,7 @@ function SubmissionsDashboardContent() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "submitted" | "approved" | "rejected">("all");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
+  const [exporting, setExporting] = useState(false);
 
   // Review Modal State
   const [selectedSub, setSelectedSub] = useState<SubmissionItem | null>(null);
@@ -95,6 +135,129 @@ function SubmissionsDashboardContent() {
 
   // Scoring Realtime
   const { snapshot, loading: scoringLoading, refresh: refreshScoring } = useScoringRealtime();
+
+  // Development Timer & Submission Portal controls (authoritative in Supabase)
+  const [flow, setFlow] = useState<ContestFlowState | null>(null);
+  const [flowLoading, setFlowLoading] = useState(true);
+  const [flowBusy, setFlowBusy] = useState(false);
+  const [flowAction, setFlowAction] = useState<"start" | "reset" | "enable" | null>(null);
+  const [flowError, setFlowError] = useState<string | null>(null);
+  const [flowWarning, setFlowWarning] = useState<string | null>(null);
+  const [flowFeedback, setFlowFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
+  // Bumped after a successful action so the per-team timers panel refreshes.
+  const [flowRevision, setFlowRevision] = useState(0);
+
+  const loadFlow = useCallback(async (isSilent = false) => {
+    if (!isSilent) setFlowLoading(true);
+    try {
+      const res = await fetchContestFlowState();
+      if (res.success && res.data) {
+        setFlow(res.data);
+        setFlowWarning(res.warning ?? null);
+        setFlowError(null);
+      } else {
+        setFlowError(res.error || "Failed to load contest flow state.");
+      }
+    } catch (err) {
+      setFlowError(err instanceof Error ? err.message : "Failed to load contest flow state.");
+    } finally {
+      if (!isSilent) setFlowLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadFlow();
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void loadFlow(true);
+      }
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [loadFlow]);
+
+  const handleStartDevTimer = useCallback(async () => {
+    if (!isAdmin) {
+      setFlowFeedback({ type: "error", message: "Admin access is required to start the development timer." });
+      return;
+    }
+    if (flow?.dev_timer_started_at_ms !== null && flow?.dev_timer_started_at_ms !== undefined) return;
+    if (flowBusy) return;
+    setFlowBusy(true);
+    setFlowAction("start");
+    setFlowFeedback(null);
+    const res = await startDevTimer();
+    if (res.success && res.data) {
+      setFlow(res.data);
+      setFlowWarning(res.warning ?? null);
+      setFlowFeedback({ type: "success", message: "Development timer started centrally." });
+      setFlowRevision((value) => value + 1);
+      await loadFlow(true);
+    } else {
+      setFlowFeedback({ type: "error", message: res.error || "Failed to start the development timer." });
+    }
+    setFlowAction(null);
+    setFlowBusy(false);
+  }, [flow?.dev_timer_started_at_ms, flowBusy, isAdmin, loadFlow]);
+
+  const handleResetDevTimer = useCallback(async () => {
+    if (!isAdmin) {
+      setFlowFeedback({ type: "error", message: "Admin access is required to reset the development timer." });
+      return;
+    }
+    if (flowBusy) return;
+    setConfirmReset(false);
+    setFlowBusy(true);
+    setFlowAction("reset");
+    setFlowFeedback(null);
+    const res = await resetDevTimer();
+    if (res.success && res.data) {
+      setFlow(res.data);
+      setFlowWarning(res.warning ?? null);
+      setFlowFeedback({ type: "success", message: "Development timer reset. Start it again when ready." });
+      setFlowRevision((value) => value + 1);
+      await loadFlow(true);
+    } else {
+      setFlowFeedback({ type: "error", message: res.error || "Failed to reset the development timer." });
+    }
+    setFlowAction(null);
+    setFlowBusy(false);
+  }, [flowBusy, isAdmin, loadFlow]);
+
+  const handleEnableSubmissions = useCallback(async () => {
+    if (!isAdmin) {
+      setFlowFeedback({ type: "error", message: "Admin access is required to enable submissions." });
+      return;
+    }
+    if (flow?.submissions_enabled || flowBusy) return;
+    setFlowBusy(true);
+    setFlowAction("enable");
+    setFlowFeedback(null);
+    const res = await enableSubmissions();
+    if (res.success && res.data) {
+      setFlow(res.data);
+      setFlowWarning(res.warning ?? null);
+      setFlowFeedback({ type: "success", message: "Submission portal enabled — teams can now submit." });
+      setFlowRevision((value) => value + 1);
+      await loadFlow(true);
+    } else {
+      setFlowFeedback({ type: "error", message: res.error || "Failed to enable submissions." });
+    }
+    setFlowAction(null);
+    setFlowBusy(false);
+  }, [flow?.submissions_enabled, flowBusy, isAdmin, loadFlow]);
+
+  // CSV export (8 fields, shared with the participant portal util).
+  const handleExportCsv = useCallback(() => {
+    if (exporting || submissions.length === 0) return;
+    setExporting(true);
+    try {
+      const rows = buildSubmissionCsvRows(submissions);
+      downloadSubmissionCsv("bid2build-submissions.csv", rows);
+    } finally {
+      setExporting(false);
+    }
+  }, [exporting, submissions]);
 
   const loadData = useCallback(async (isSilent = false) => {
     try {
@@ -267,6 +430,12 @@ function SubmissionsDashboardContent() {
       });
   }, [snapshot]);
 
+  // Controls always render; live values replace the defaults once loaded.
+  const displayFlow = flow ?? DEFAULT_CONTEST_FLOW;
+  const timerStarted =
+    displayFlow.dev_timer_started_at_ms !== null ||
+    displayFlow.dev_timer_status !== "not_started";
+
   return (
     <div className="min-h-screen bg-[#0d0d0d] text-white flex flex-col font-sans select-none">
       <AdminHeader
@@ -322,6 +491,16 @@ function SubmissionsDashboardContent() {
 
             <button
               type="button"
+              onClick={handleExportCsv}
+              disabled={exporting || submissions.length === 0}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg border border-white/10 bg-[#16171b] text-slate-300 hover:text-white hover:border-white/20 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export CSV</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => void loadData(true)}
               disabled={refreshing}
               className="p-2.5 rounded-xl border border-white/10 bg-[#16171b] text-slate-400 hover:text-white hover:border-white/20 transition-all cursor-pointer disabled:opacity-50"
@@ -331,6 +510,202 @@ function SubmissionsDashboardContent() {
               <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin text-[#fe5102]" : ""}`} />
             </button>
           </div>
+        </div>
+
+        {/* Team development timers (per-team duration, window, DQ) */}
+        <TeamDevTimersPanel refreshToken={flowRevision} />
+
+        {/* Development Phase & Submission Controls (Admin Only) */}
+        <div className="bg-[#16171b] border border-white/10 rounded-2xl p-5 space-y-4 shadow-xl mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-white/10">
+            <div>
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <Clock className="w-5 h-5 text-[#fe5102]" />
+                Development Phase &amp; Submission Controls
+              </h2>
+              <p className="text-xs text-slate-400 mt-1">
+                Start the centrally stored development timer for all teams, or open the submission portal. Both states are persisted in the database.
+              </p>
+            </div>
+            <span className="flex items-center gap-2 text-[11px] text-slate-400 font-mono">
+              {flowLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-[#fe5102]" />}
+              <span>Admin Only</span>
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Development Timer */}
+            <div className="p-4 rounded-xl bg-[#111215] border border-white/5 flex flex-col justify-between gap-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-white uppercase tracking-wider">Development Timer</span>
+                {displayFlow.dev_timer_status === "running" ? (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-950/60 text-emerald-300 border border-emerald-500/30">
+                    Running
+                  </span>
+                ) : displayFlow.dev_timer_status === "finished" ? (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-950/60 text-slate-300 border border-slate-700">
+                    Finished
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-950/60 text-amber-300 border border-amber-500/30">
+                    Not started
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-baseline gap-2 font-mono">
+                <span className="text-2xl font-black text-white">
+                  {formatTimerTime(displayFlow.dev_timer_remaining_seconds)}
+                </span>
+                {displayFlow.dev_timer_status === "running" && (
+                  <span className="text-xs text-slate-500">
+                    / {formatTimerTime(displayFlow.dev_timer_total_seconds)} total
+                  </span>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={flowBusy || timerStarted}
+                  onClick={() => void handleStartDevTimer()}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-[#fe5102] hover:bg-[#d94502] text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                >
+                  {flowAction === "start" ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Play className="w-3.5 h-3.5" />
+                  )}
+                  <span>
+                    {displayFlow.dev_timer_status === "running"
+                      ? "Timer is Running"
+                      : displayFlow.dev_timer_status === "finished"
+                      ? "Timer Finished"
+                      : flowAction === "start"
+                      ? "Starting..."
+                      : "Start Development Time"}
+                  </span>
+                </button>
+
+                {confirmReset ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={flowBusy}
+                      onClick={() => void handleResetDevTimer()}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-rose-600 hover:bg-rose-500 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {flowAction === "reset" ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : null}
+                      <span>Confirm reset</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={flowBusy}
+                      onClick={() => setConfirmReset(false)}
+                      className="px-2.5 py-2 text-xs font-semibold rounded-lg text-slate-400 hover:text-white transition-colors disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={flowBusy || !timerStarted}
+                    onClick={() => setConfirmReset(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-[#1c1d22] text-slate-300 border border-white/10 hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+
+              <p className="text-[11px] text-slate-500">
+                Total: {formatTimerTime(displayFlow.dev_timer_total_seconds)}. Teams and clients read the same centrally stored clock.
+              </p>
+            </div>
+
+            {/* Submission Portal */}
+            <div className="p-4 rounded-xl bg-[#111215] border border-white/5 flex flex-col justify-between gap-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-white uppercase tracking-wider">Submission Portal</span>
+                {displayFlow.submissions_source === "manual" ? (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-950/60 text-emerald-300 border border-emerald-500/30">
+                    Manual
+                  </span>
+                ) : displayFlow.submissions_source === "auto" ? (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-950/60 text-blue-300 border border-blue-500/30">
+                    Auto (timer)
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700">
+                    Disabled
+                  </span>
+                )}
+              </div>
+
+              <button
+                type="button"
+                disabled={flowBusy || displayFlow.submissions_enabled}
+                onClick={() => void handleEnableSubmissions()}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+              >
+                {flowAction === "enable" ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Power className="w-3.5 h-3.5" />
+                )}
+                <span>
+                  {displayFlow.submissions_enabled
+                    ? "Submissions Enabled"
+                    : flowAction === "enable"
+                    ? "Enabling..."
+                    : "Enable Submission"}
+                </span>
+              </button>
+
+              <p className="text-[11px] text-slate-500">
+                {displayFlow.submissions_enabled
+                  ? displayFlow.submissions_source === "auto"
+                    ? "Enabled automatically when the development timer reached the final 20 minutes."
+                    : "Enabled — teams can submit now."
+                  : "Closed — teams cannot submit."}
+              </p>
+            </div>
+
+            {/* Action Feedback */}
+            {flowFeedback && (
+              <div
+                className={`p-3 rounded-xl text-xs font-semibold flex items-start gap-2 border ${
+                  flowFeedback.type === "success"
+                    ? "bg-emerald-950/80 text-emerald-300 border-emerald-500/30"
+                    : "bg-red-950/80 text-red-300 border-red-500/30"
+                }`}
+              >
+                {flowFeedback.type === "success" ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                )}
+                <span>{flowFeedback.message}</span>
+              </div>
+            )}
+          </div>
+
+          {flowError && (
+            <div className="p-3 rounded-xl bg-red-950/80 border border-red-500/30 text-red-300 text-xs font-semibold flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+              <span>{flowError}</span>
+            </div>
+          )}
+
+          {flowWarning && (
+            <div className="p-3 rounded-xl bg-amber-950/60 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>{flowWarning}</span>
+            </div>
+          )}
         </div>
 
         {error && (
