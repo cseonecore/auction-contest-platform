@@ -17,8 +17,10 @@ import {
 import { useScoringRealtime } from "@/features/scoring/hooks/useScoringRealtime";
 import {
   startDevTimer,
+  pauseDevTimer,
   resetDevTimer,
   enableSubmissions,
+  disableSubmissions,
   fetchContestFlowState,
 } from "@/features/admin/services/contestFlowService";
 import type { ContestFlowState } from "@/features/admin/types/auctionAdmin";
@@ -39,7 +41,9 @@ import {
   Coins,
   History,
   Play,
+  Pause,
   Power,
+  Ban,
   Download,
 } from "lucide-react";
 import { TeamDevTimersPanel } from "@/features/admin/components/TeamDevTimersPanel";
@@ -97,11 +101,14 @@ function formatTimerTime(seconds: number): string {
  */
 const DEFAULT_CONTEST_FLOW: ContestFlowState = {
   dev_timer_started_at_ms: null,
+  dev_timer_paused_at_ms: null,
+  dev_timer_paused_total_seconds: 0,
   dev_timer_total_seconds: 75 * 60,
   dev_timer_remaining_seconds: 75 * 60,
   dev_timer_status: "not_started",
   submissions_enabled: false,
   submissions_manually_enabled: false,
+  submissions_suppressed: false,
   submissions_source: "none",
   server_time: null,
 };
@@ -140,7 +147,9 @@ function SubmissionsDashboardContent() {
   const [flow, setFlow] = useState<ContestFlowState | null>(null);
   const [flowLoading, setFlowLoading] = useState(true);
   const [flowBusy, setFlowBusy] = useState(false);
-  const [flowAction, setFlowAction] = useState<"start" | "reset" | "enable" | null>(null);
+  const [flowAction, setFlowAction] = useState<
+    "start" | "pause" | "resume" | "reset" | "enable" | "disable" | null
+  >(null);
   const [flowError, setFlowError] = useState<string | null>(null);
   const [flowWarning, setFlowWarning] = useState<string | null>(null);
   const [flowFeedback, setFlowFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -181,24 +190,62 @@ function SubmissionsDashboardContent() {
       setFlowFeedback({ type: "error", message: "Admin access is required to start the development timer." });
       return;
     }
-    if (flow?.dev_timer_started_at_ms !== null && flow?.dev_timer_started_at_ms !== undefined) return;
     if (flowBusy) return;
+    const status = flow?.dev_timer_status ?? "not_started";
+    if (status === "running" || status === "finished") return;
+    const resuming = status === "paused";
     setFlowBusy(true);
-    setFlowAction("start");
+    setFlowAction(resuming ? "resume" : "start");
     setFlowFeedback(null);
     const res = await startDevTimer();
     if (res.success && res.data) {
       setFlow(res.data);
       setFlowWarning(res.warning ?? null);
-      setFlowFeedback({ type: "success", message: "Development timer started centrally." });
+      setFlowFeedback({
+        type: "success",
+        message: resuming
+          ? "Development timer resumed — the clock continues from where it paused."
+          : "Development timer started centrally.",
+      });
       setFlowRevision((value) => value + 1);
       await loadFlow(true);
     } else {
-      setFlowFeedback({ type: "error", message: res.error || "Failed to start the development timer." });
+      setFlowFeedback({
+        type: "error",
+        message:
+          res.error ||
+          (resuming ? "Failed to resume the development timer." : "Failed to start the development timer."),
+      });
     }
     setFlowAction(null);
     setFlowBusy(false);
-  }, [flow?.dev_timer_started_at_ms, flowBusy, isAdmin, loadFlow]);
+  }, [flow?.dev_timer_status, flowBusy, isAdmin, loadFlow]);
+
+  const handlePauseDevTimer = useCallback(async () => {
+    if (!isAdmin) {
+      setFlowFeedback({ type: "error", message: "Admin access is required to pause the development timer." });
+      return;
+    }
+    if (flowBusy || flow?.dev_timer_status !== "running") return;
+    setFlowBusy(true);
+    setFlowAction("pause");
+    setFlowFeedback(null);
+    const res = await pauseDevTimer();
+    if (res.success && res.data) {
+      setFlow(res.data);
+      setFlowWarning(res.warning ?? null);
+      setFlowFeedback({
+        type: "success",
+        message: "Development timer paused — remaining time is frozen. Resume with Start.",
+      });
+      setFlowRevision((value) => value + 1);
+      await loadFlow(true);
+    } else {
+      setFlowFeedback({ type: "error", message: res.error || "Failed to pause the development timer." });
+    }
+    setFlowAction(null);
+    setFlowBusy(false);
+  }, [flow?.dev_timer_status, flowBusy, isAdmin, loadFlow]);
 
   const handleResetDevTimer = useCallback(async () => {
     if (!isAdmin) {
@@ -214,7 +261,10 @@ function SubmissionsDashboardContent() {
     if (res.success && res.data) {
       setFlow(res.data);
       setFlowWarning(res.warning ?? null);
-      setFlowFeedback({ type: "success", message: "Development timer reset. Start it again when ready." });
+      setFlowFeedback({
+        type: "success",
+        message: "Timer and submission portal reset. Start the development timer again when ready.",
+      });
       setFlowRevision((value) => value + 1);
       await loadFlow(true);
     } else {
@@ -242,6 +292,32 @@ function SubmissionsDashboardContent() {
       await loadFlow(true);
     } else {
       setFlowFeedback({ type: "error", message: res.error || "Failed to enable submissions." });
+    }
+    setFlowAction(null);
+    setFlowBusy(false);
+  }, [flow?.submissions_enabled, flowBusy, isAdmin, loadFlow]);
+
+  const handleDisableSubmissions = useCallback(async () => {
+    if (!isAdmin) {
+      setFlowFeedback({ type: "error", message: "Admin access is required to disable submissions." });
+      return;
+    }
+    if (!flow?.submissions_enabled || flowBusy) return;
+    setFlowBusy(true);
+    setFlowAction("disable");
+    setFlowFeedback(null);
+    const res = await disableSubmissions();
+    if (res.success && res.data) {
+      setFlow(res.data);
+      setFlowWarning(res.warning ?? null);
+      setFlowFeedback({
+        type: "success",
+        message: "Submission portal disabled — teams can no longer submit.",
+      });
+      setFlowRevision((value) => value + 1);
+      await loadFlow(true);
+    } else {
+      setFlowFeedback({ type: "error", message: res.error || "Failed to disable submissions." });
     }
     setFlowAction(null);
     setFlowBusy(false);
@@ -524,7 +600,8 @@ function SubmissionsDashboardContent() {
                 Development Phase &amp; Submission Controls
               </h2>
               <p className="text-xs text-slate-400 mt-1">
-                Start the centrally stored development timer for all teams, or open the submission portal. Both states are persisted in the database.
+                Start, pause, or resume the centrally stored development timer, and enable or
+                disable the submission portal. Both states are persisted in the database.
               </p>
             </div>
             <span className="flex items-center gap-2 text-[11px] text-slate-400 font-mono">
@@ -541,6 +618,10 @@ function SubmissionsDashboardContent() {
                 {displayFlow.dev_timer_status === "running" ? (
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-950/60 text-emerald-300 border border-emerald-500/30">
                     Running
+                  </span>
+                ) : displayFlow.dev_timer_status === "paused" ? (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-950/60 text-amber-300 border border-amber-500/30">
+                    Paused
                   </span>
                 ) : displayFlow.dev_timer_status === "finished" ? (
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-950/60 text-slate-300 border border-slate-700">
@@ -567,11 +648,15 @@ function SubmissionsDashboardContent() {
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  disabled={flowBusy || timerStarted}
+                  disabled={
+                    flowBusy ||
+                    displayFlow.dev_timer_status === "running" ||
+                    displayFlow.dev_timer_status === "finished"
+                  }
                   onClick={() => void handleStartDevTimer()}
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-[#fe5102] hover:bg-[#d94502] text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
                 >
-                  {flowAction === "start" ? (
+                  {flowAction === "start" || flowAction === "resume" ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   ) : (
                     <Play className="w-3.5 h-3.5" />
@@ -579,12 +664,31 @@ function SubmissionsDashboardContent() {
                   <span>
                     {displayFlow.dev_timer_status === "running"
                       ? "Timer is Running"
+                      : displayFlow.dev_timer_status === "paused"
+                      ? flowAction === "resume"
+                        ? "Resuming..."
+                        : "Resume Development Time"
                       : displayFlow.dev_timer_status === "finished"
                       ? "Timer Finished"
                       : flowAction === "start"
                       ? "Starting..."
                       : "Start Development Time"}
                   </span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={flowBusy || displayFlow.dev_timer_status !== "running"}
+                  onClick={() => void handlePauseDevTimer()}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-amber-600 hover:bg-amber-500 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Pause the development timer; remaining time is frozen"
+                >
+                  {flowAction === "pause" ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Pause className="w-3.5 h-3.5" />
+                  )}
+                  <span>{flowAction === "pause" ? "Pausing..." : "Pause"}</span>
                 </button>
 
                 {confirmReset ? (
@@ -615,6 +719,7 @@ function SubmissionsDashboardContent() {
                     disabled={flowBusy || !timerStarted}
                     onClick={() => setConfirmReset(true)}
                     className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-[#1c1d22] text-slate-300 border border-white/10 hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Clears the development timer AND the submission portal"
                   >
                     Reset
                   </button>
@@ -622,7 +727,8 @@ function SubmissionsDashboardContent() {
               </div>
 
               <p className="text-[11px] text-slate-500">
-                Total: {formatTimerTime(displayFlow.dev_timer_total_seconds)}. Teams and clients read the same centrally stored clock.
+                Total: {formatTimerTime(displayFlow.dev_timer_total_seconds)}. Pausing freezes the
+                remaining time for every team; Resume continues from the same point.
               </p>
             </div>
 
@@ -645,31 +751,43 @@ function SubmissionsDashboardContent() {
                 )}
               </div>
 
-              <button
-                type="button"
-                disabled={flowBusy || displayFlow.submissions_enabled}
-                onClick={() => void handleEnableSubmissions()}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-              >
-                {flowAction === "enable" ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Power className="w-3.5 h-3.5" />
-                )}
-                <span>
-                  {displayFlow.submissions_enabled
-                    ? "Submissions Enabled"
-                    : flowAction === "enable"
-                    ? "Enabling..."
-                    : "Enable Submission"}
-                </span>
-              </button>
+              {displayFlow.submissions_enabled ? (
+                <button
+                  type="button"
+                  disabled={flowBusy}
+                  onClick={() => void handleDisableSubmissions()}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-rose-600 hover:bg-rose-500 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                >
+                  {flowAction === "disable" ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Ban className="w-3.5 h-3.5" />
+                  )}
+                  <span>{flowAction === "disable" ? "Disabling..." : "Disable Submission"}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={flowBusy}
+                  onClick={() => void handleEnableSubmissions()}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                >
+                  {flowAction === "enable" ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Power className="w-3.5 h-3.5" />
+                  )}
+                  <span>{flowAction === "enable" ? "Enabling..." : "Enable Submission"}</span>
+                </button>
+              )}
 
               <p className="text-[11px] text-slate-500">
                 {displayFlow.submissions_enabled
                   ? displayFlow.submissions_source === "auto"
-                    ? "Enabled automatically when the development timer reached the final 20 minutes."
+                    ? "Enabled automatically when the development timer reached the final 20 minutes. Disable to close it again."
                     : "Enabled — teams can submit now."
+                  : displayFlow.submissions_suppressed
+                  ? "Disabled by an admin — automatic last-20-minute opening is suppressed until re-enabled or reset."
                   : "Closed — teams cannot submit."}
               </p>
             </div>
@@ -947,7 +1065,7 @@ function SubmissionsDashboardContent() {
                     <span>Official Competition Leaderboard</span>
                   </h2>
                   <p className="text-xs text-slate-400 mt-1">
-                    Rule Book §9.8: Presentation Score + Bonus Points from unspent auction budget (1 pt per 3 unspent coins).
+                    Rule Book §9.8: Presentation Score + Bonus Points from unspent auction budget (1 pt per 10 unspent coins).
                   </p>
                 </div>
                 <div className="text-right text-[11px] text-slate-400 font-mono">

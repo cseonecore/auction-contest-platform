@@ -639,7 +639,7 @@ values
   ('opening_window_seconds', '10'::jsonb),
   ('timer_extension_seconds', '5'::jsonb),
   ('starting_wallet_balance', '100'::jsonb),
-  ('bonus_points_rate', '{"points": 1, "per_unspent": 3}'::jsonb),
+  ('bonus_points_rate', '{"points": 1, "per_unspent": 10}'::jsonb),
   ('bonus_time_seconds', '60'::jsonb),
   ('solving_timer_seconds', '120'::jsonb),
   ('manual_timer_extension_seconds', '15'::jsonb),
@@ -856,6 +856,7 @@ declare
   v_spent integer;
   v_reserved integer;
   v_reserved_total integer;
+  v_bonus_per integer;
 begin
   -- The caller may read their own balance; admins read anybody's.
   v_caller_team := public.current_team_id();
@@ -879,13 +880,24 @@ begin
 
   v_reserved_total := 0; -- Rule Book §5.1: bids never reserve points.
 
+  -- Rule Book §9.8: 1 bonus point per 10 unspent coins, rounded down.
+  select case
+           when jsonb_typeof(value) = 'object'
+             then (value ->> 'per_unspent')::integer
+         end
+  into v_bonus_per
+  from public.settings
+  where key = 'bonus_points_rate';
+
+  v_bonus_per := greatest(coalesce(v_bonus_per, 10), 1);
+
   return jsonb_build_object(
     'team_id',            p_team_id,
     'balance',            coalesce(v_balance, 0),
     'spent',              v_spent,
     'reserved',           v_reserved_total,
     'starting_balance',   public.get_setting_int('starting_wallet_balance', 100),
-    'projected_bonus',    (coalesce(v_balance, 0) / greatest(public.get_setting_int('bonus_points_rate', 3), 1))
+    'projected_bonus',    (coalesce(v_balance, 0) / v_bonus_per)
   );
 end;
 $$;

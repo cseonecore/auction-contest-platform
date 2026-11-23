@@ -7,7 +7,7 @@
  * Tracks team quota completion and wallet economy per Rule Book §5.3 & §9.8:
  *  - Both Round 1 and Round 2 won topics
  *  - Wallet balance and total points spent (only deducted upon winning)
- *  - Projected evaluation bonus points: Math.floor(wallet_balance / 3)
+ *  - Projected evaluation bonus points: Math.floor(wallet_balance / 10)
  *  - Quota completion status (Both Won, 1 Won, None Won)
  *  - Search by team name or topic title
  *  - Filter by quota status
@@ -247,7 +247,7 @@ export function TeamAllocationTable({
                 >
                   Balance {renderSortIndicator('balance')}
                 </th>
-                <th scope="col" className="py-3 px-4 text-center font-mono" title="Math.floor(balance / 3) per Rule Book §9.8">
+                <th scope="col" className="py-3 px-4 text-center font-mono" title="Math.floor(balance / 10) per Rule Book §9.8">
                   Bonus Pts (§9.8)
                 </th>
                 <th
@@ -369,7 +369,7 @@ export function TeamAllocationTable({
             Showing {sortedTeams.length} of {allocations.length} registered teams.
           </span>
           <span className="text-[11px] text-zinc-400 font-mono">
-            Rule Book §9.8 Bonus: floor(remaining wallet balance / 3) added to final presentation score.
+            Rule Book §9.8 Bonus: floor(remaining wallet balance / 10) added to final presentation score.
           </span>
         </div>
       </div>

@@ -247,7 +247,7 @@ Competition score, bonus time and penalties are **separate** concepts:
 * *Competition score* — `public.evaluations.score`, written when a judge
   approves a solution.
 * *Bonus time* — `public.bonus_transactions`, extends the solving clock.
-* *Projected bonus points* — unspent budget ÷ 3 (Rule Book §9.8), derived, never
+* *Projected bonus points* — unspent budget ÷ 10 (Rule Book §9.8), derived, never
   stored.
 
 ---

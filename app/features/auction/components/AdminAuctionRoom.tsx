@@ -395,7 +395,12 @@ function UploadSlotsModal({
 
 export function AdminAuctionRoom() {
   // ── Authoritative live state (session, timer fields, teams) ──
-  const { state, refresh: refreshLive } = useAuction();
+  const {
+    state,
+    error: liveError,
+    refreshing: liveRefreshing,
+    refresh: refreshLive,
+  } = useAuction();
 
   // ── Admin slot queue + slot-scoped actions ──
   const {
@@ -1006,6 +1011,36 @@ export function AdminAuctionRoom() {
 
   return (
     <div className="w-full space-y-6">
+      {liveError && (
+        <div
+          role="alert"
+          className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-xs"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="font-bold text-rose-300">
+                Live auction state could not be loaded
+              </p>
+              <p className="mt-1 font-medium break-words text-rose-200/80">
+                {liveError}
+              </p>
+              <p className="mt-1 text-rose-200/60">
+                Session controls (Start / Stop, timers, items) cannot reflect
+                changes until this succeeds.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void refreshLive()}
+              disabled={liveRefreshing}
+              className="shrink-0 rounded-lg border border-rose-400/40 px-3 py-1.5 text-[11px] font-bold text-rose-200 transition-colors hover:bg-rose-500/20 disabled:opacity-50"
+            >
+              {liveRefreshing ? "Retrying…" : "Retry"}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 1 ─ Top-level session & round quick controls */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2.5">
@@ -1082,6 +1117,17 @@ export function AdminAuctionRoom() {
           </button>
         </div>
       </div>
+
+      {/* Action feedback — kept next to the controls that trigger it */}
+      {feedback && (
+        <p
+          className={`text-xs font-semibold ${
+            feedback.type === "success" ? "text-emerald-400" : "text-rose-400"
+          }`}
+        >
+          {feedback.message}
+        </p>
+      )}
 
       {/* 1.5 ─ 3-Round Allocation & Qualification Management Panel */}
       <section className="rounded-2xl border border-white/10 bg-[#17181c] p-5 sm:p-6 shadow-xl space-y-5">
@@ -1520,17 +1566,6 @@ export function AdminAuctionRoom() {
             Delete Slot
           </button>
         </div>
-
-        {/* Inline action feedback (no banners) */}
-        {feedback && (
-          <p
-            className={`mt-3 text-xs font-semibold ${
-              feedback.type === "success" ? "text-emerald-400" : "text-rose-400"
-            }`}
-          >
-            {feedback.message}
-          </p>
-        )}
 
         {/* Problem statement card */}
         <section className="relative mt-5 min-h-[280px] rounded-2xl border border-white/10 bg-[#1b1c21] p-5 sm:p-7">

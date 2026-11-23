@@ -134,6 +134,13 @@ export function TeamDevTimersPanel({ refreshToken = 0 }: TeamDevTimersPanelProps
           Finished
         </span>
       );
+    if (status === "paused")
+      return (
+        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-950/60 text-amber-300 border border-amber-500/30 inline-flex items-center gap-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+          Paused
+        </span>
+      );
     return (
       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-950/60 text-amber-300 border border-amber-500/30">
         Not started

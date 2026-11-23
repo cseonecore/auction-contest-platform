@@ -188,12 +188,41 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: flowData } = await service.rpc("get_contest_flow_state").single();
-    const manualEnabled = Boolean(
-      (flowData as { submissions_manually_enabled?: boolean } | null)?.submissions_manually_enabled
-    );
+    const { data: flowData, error: flowError } = await service.rpc("get_contest_flow_state").single();
+    const flow = flowData as
+      | {
+          submissions_enabled?: boolean;
+          submissions_manually_enabled?: boolean;
+          server_time?: string | null;
+        }
+      | null;
+
+    // The admin "Disable Submission" control must be authoritative: without
+    // this gate the client-side flag was the only thing blocking new uploads.
+    let portalOpen: boolean | null = null;
+    if (!flowError && flow) {
+      portalOpen = flow.submissions_enabled === true;
+    } else {
+      const { data: settingRow } = await service
+        .from("settings")
+        .select("value")
+        .eq("key", "submissions_enabled")
+        .maybeSingle();
+      if (settingRow) {
+        const raw = settingRow.value;
+        portalOpen = !(raw === false || raw === "false" || raw === 0);
+      }
+    }
+    if (portalOpen === false) {
+      return NextResponse.json(
+        { error: "Submissions are currently closed by the organizers." },
+        { status: 403 }
+      );
+    }
+
+    const manualEnabled = Boolean(flow?.submissions_manually_enabled);
     const serverTimeIso =
-      ((flowData as { server_time?: string | null } | null)?.server_time) ?? serverTimeRaw ?? now.toISOString();
+      flow?.server_time ?? serverTimeRaw ?? now.toISOString();
 
     if (
       !teamStatus.has_submission &&

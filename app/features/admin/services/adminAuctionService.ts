@@ -470,25 +470,94 @@ export const openSlot = async (
   startingBid: number = 10
 ): Promise<ServiceResult<OpenSlotResult>> => adminOpenSlot(slotId, startingBid);
 
+/**
+ * Make add-on fields consistent whether or not migration 031 is applied.
+ * Older get_bidding_results() versions folded bonus time into
+ * total_addon_dev_seconds and did not expose the raw per-team override, so the
+ * admin table merges the override from public.teams and recomputes the split.
+ */
+async function normalizeTeamAddons(
+  teams: BiddingResultTeam[],
+  responseDefault?: number
+): Promise<BiddingResultTeam[]> {
+  let defaultAddon = Number(responseDefault);
+  if (!Number.isFinite(defaultAddon) || defaultAddon < 0) {
+    const { data: setting } = await supabase
+      .from("settings")
+      .select("value")
+      .eq("key", "admin_dev_addon_seconds")
+      .maybeSingle();
+    const parsed = Number(setting?.value);
+    defaultAddon = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  }
+
+  const overrideByTeam = new Map<string, number | null>();
+  const { data: rows, error } = await supabase
+    .from("teams")
+    .select("id, dev_addon_seconds");
+  if (!error) {
+    for (const row of rows ?? []) {
+      overrideByTeam.set(row.id, row.dev_addon_seconds ?? null);
+    }
+  }
+
+  return teams.map((team) => {
+    const override = overrideByTeam.has(team.team_id)
+      ? overrideByTeam.get(team.team_id) ?? null
+      : team.dev_addon_seconds ?? null;
+    const effectiveAddon = override ?? defaultAddon;
+    const base = Number(team.total_base_dev_seconds) || 0;
+
+    return {
+      ...team,
+      dev_addon_seconds: override,
+      admin_addon_dev_seconds: defaultAddon,
+      total_addon_dev_seconds: effectiveAddon,
+      total_dev_seconds:
+        base + effectiveAddon + (Number(team.total_bonus_dev_seconds) || 0),
+      problems: (team.problems ?? []).map((problem) => ({
+        ...problem,
+        total_dev_seconds:
+          base + effectiveAddon + (Number(problem.bonus_dev_seconds) || 0),
+      })),
+    };
+  });
+}
+
 /** Consolidated authoritative bidding results across all teams. */
 export const fetchBiddingResults = async (): Promise<
   AdminActionResult<BiddingResultTeam[]>
 > => {
   // 1. Primary path: try PostgreSQL RPC get_bidding_results
   const res = await call<
-    BiddingResultTeam[] | { teams?: BiddingResultTeam[]; base_dev_seconds?: number }
+    | BiddingResultTeam[]
+    | {
+        teams?: BiddingResultTeam[];
+        base_dev_seconds?: number;
+        admin_dev_addon_seconds?: number;
+      }
   >("get_bidding_results");
 
   if (res.success && res.data) {
     const rawData = res.data;
+    const rawObject = Array.isArray(rawData)
+      ? null
+      : (rawData as {
+          teams?: BiddingResultTeam[];
+          base_dev_seconds?: number;
+          admin_dev_addon_seconds?: number;
+        });
     const teamsList = Array.isArray(rawData)
       ? rawData
-      : Array.isArray((rawData as { teams?: BiddingResultTeam[] }).teams)
-      ? (rawData as { teams: BiddingResultTeam[] }).teams
+      : Array.isArray(rawObject?.teams)
+      ? (rawObject as { teams: BiddingResultTeam[] }).teams
       : null;
 
     if (teamsList) {
-      return { success: true, data: teamsList };
+      return {
+        success: true,
+        data: await normalizeTeamAddons(teamsList, rawObject?.admin_dev_addon_seconds),
+      };
     }
   }
 
@@ -551,7 +620,6 @@ async function fetchBiddingResultsFallback(): Promise<BiddingResultTeam[]> {
   } catch {
     // Keep defaults (4500 + 0)
   }
-  const totalDevSeconds = baseDevSeconds + addonDevSeconds;
 
   // 2. Fetch teams, members, wallets, topics, sold slots, bonus_transactions, eliminations in parallel
   const [
@@ -635,6 +703,20 @@ async function fetchBiddingResultsFallback(): Promise<BiddingResultTeam[]> {
     if (e.team_id) activeElimByTeam.set(e.team_id, e.reason || "Eliminated");
   });
 
+  // Per-team add-on overrides (nullable). Ignore the query when the project
+  // predates migration 028, in which case everyone uses the global default.
+  const addonByTeam = new Map<string, number | null>();
+  {
+    const { data: addonRows, error: addonError } = await supabase
+      .from("teams")
+      .select("id, dev_addon_seconds");
+    if (!addonError) {
+      for (const row of addonRows ?? []) {
+        addonByTeam.set(row.id, row.dev_addon_seconds ?? null);
+      }
+    }
+  }
+
   return teams.map((t): BiddingResultTeam => {
     const teamMembers = membersByTeam.get(t.id) || [];
     const captainMember =
@@ -651,6 +733,8 @@ async function fetchBiddingResultsFallback(): Promise<BiddingResultTeam[]> {
     }));
 
     const wonSlots = slotsByTeam.get(t.id) || [];
+    const teamAddonOverride = addonByTeam.get(t.id) ?? null;
+    const effectiveAddonDevSeconds = teamAddonOverride ?? addonDevSeconds;
     let totalSpent = 0;
     let totalBonusDevSeconds = 0;
 
@@ -673,13 +757,13 @@ async function fetchBiddingResultsFallback(): Promise<BiddingResultTeam[]> {
         sold_at: s.sold_at,
         base_dev_seconds: baseDevSeconds,
         bonus_dev_seconds: bonusSecs,
-        total_dev_seconds: totalDevSeconds + bonusSecs,
+        total_dev_seconds: baseDevSeconds + effectiveAddonDevSeconds + bonusSecs,
       };
     });
 
     const wonCount = problemsList.length;
-    const totalBaseDevSeconds = baseDevSeconds * wonCount;
-    const totalAddonDevSeconds = addonDevSeconds * wonCount;
+    const totalBaseDevSeconds = baseDevSeconds;
+    const totalAddonDevSeconds = effectiveAddonDevSeconds;
     const totalDevSeconds = totalBaseDevSeconds + totalAddonDevSeconds + totalBonusDevSeconds;
     const isEliminated = activeElimByTeam.has(t.id);
 
@@ -696,6 +780,8 @@ async function fetchBiddingResultsFallback(): Promise<BiddingResultTeam[]> {
       problems: problemsList,
       won_count: wonCount,
       total_base_dev_seconds: totalBaseDevSeconds,
+      dev_addon_seconds: teamAddonOverride,
+      admin_addon_dev_seconds: addonDevSeconds,
       total_addon_dev_seconds: totalAddonDevSeconds,
       total_bonus_dev_seconds: totalBonusDevSeconds,
       total_dev_seconds: totalDevSeconds,

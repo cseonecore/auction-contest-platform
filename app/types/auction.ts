@@ -176,8 +176,8 @@ export interface AuctionSettings {
   starting_balance: number
   /**
    * Bonus evaluation points per N unspent auction points.
-   * Rule Book §9.8: 1 bonus per 3 unspent, rounded down.
-   * Denominator = 3 by default.
+   * Rule Book §9.8: 1 bonus per 10 unspent, rounded down.
+   * Denominator = 10 by default.
    */
   bonus_points_per: number
 }
@@ -188,6 +188,6 @@ export const DEFAULT_AUCTION_SETTINGS: AuctionSettings = {
   opening_window_seconds: 10,
   timer_extension_seconds: 3,
   starting_balance: 100,
-  bonus_points_per: 3,
+  bonus_points_per: 10,
 }
 

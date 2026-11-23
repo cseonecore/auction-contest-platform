@@ -834,7 +834,7 @@ export default function ProfilePage() {
                   <br />
                   • Submissions are evaluated on implementation depth, UI fidelity, and code quality.
                   <br />
-                  • Unspent coins after the auction convert to bonus evaluation points.
+                  • Unspent coins after the auction convert to bonus evaluation points (10 unspent coins = 1 point).
                 </p>
               </div>
             </div>

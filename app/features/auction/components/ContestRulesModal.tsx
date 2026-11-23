@@ -96,7 +96,7 @@ export function ContestRulesModal({ isOpen, onClose }: ContestRulesModalProps) {
               <strong className="text-white block font-semibold mb-0.5">
                 Unspent Coin Bonus Evaluation (§9.8)
               </strong>
-              Coins remaining unspent in your wallet after both rounds earn bonus contest points (1 bonus point per 3 unspent coins). Spend strategically!
+              Coins remaining unspent in your wallet after both rounds earn bonus contest points (1 bonus point per 10 unspent coins). Spend strategically!
             </div>
           </div>
         </div>

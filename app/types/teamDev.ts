@@ -3,12 +3,14 @@
  * RPC (migration 028). Shared by the participant profile route, the submit
  * portal gate, and the admin dashboards.
  */
-export type TeamDevTimerStatus = 'not_started' | 'running' | 'finished';
+export type TeamDevTimerStatus = 'not_started' | 'running' | 'paused' | 'finished';
 
 export interface TeamDevStatus {
   team_id: string;
   /** Epoch millis when the central timer started; null while not started. */
   dev_timer_started_at_ms: number | null;
+  /** Epoch millis of the active pause, or null while the clock is running. */
+  dev_timer_paused_at_ms?: number | null;
   /** Effective add-on seconds: teams.dev_addon_seconds ?? admin_dev_addon_seconds. */
   dev_addon_seconds: number | null;
   /** Per-team duration in seconds: base + effective add-on + earned bonus. */

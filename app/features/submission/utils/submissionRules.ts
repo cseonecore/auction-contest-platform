@@ -349,10 +349,10 @@ export function validateSubmissionStateTransition(
 
 /**
  * Rule Book §9.8 unspent auction budget bonus points calculation:
- * 1 bonus point for every 3 unspent coins, rounded down.
+ * 1 bonus point for every 10 unspent coins, rounded down.
  * Negative balance or zero yields 0 bonus points.
  */
 export function calculateRuleBook98Bonus(remainingBudget: number): number {
   const coins = Number(remainingBudget) || 0;
-  return Math.floor(Math.max(0, coins) / 3);
+  return Math.floor(Math.max(0, coins) / 10);
 }

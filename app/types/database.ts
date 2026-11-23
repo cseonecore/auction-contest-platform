@@ -541,7 +541,7 @@ export interface Database {
       set_team_dev_addon_seconds: {
         Args: {
           p_team_id: string
-          p_seconds: number
+          p_seconds: number | null
         }
         Returns: Json
       }

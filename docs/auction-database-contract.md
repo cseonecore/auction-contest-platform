@@ -158,7 +158,7 @@ Added: `live_url text`, `approved_by uuid`, `approved_at timestamptz`,
 | `opening_window_seconds` | 10 | bidding window |
 | `timer_extension_seconds` | 5 | clock extension per valid bid |
 | `starting_wallet_balance` | 100 | wallet at registration / reset |
-| `bonus_points_rate` | `{"points":1,"per_unspent":3}` | Rule Book §9.8 |
+| `bonus_points_rate` | `{"points":1,"per_unspent":10}` | Rule Book §9.8 |
 | `bonus_time_seconds` | 60 | bonus awarded per approved solution |
 | `solving_timer_seconds` | 120 | solving clock length |
 | `manual_timer_extension_seconds` | 15 | default admin extension |

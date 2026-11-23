@@ -137,7 +137,7 @@ The competition score is **not** the auction budget.
 | Spent points | `wallet_transactions` (`tx_type='win_deduction'`) | `close_slot()` |
 | Competition score | `evaluations.score` | `approve_submission()` |
 | Bonus time | `bonus_transactions.bonus_seconds` | `approve_submission()` |
-| Projected bonus points | derived: unspent ÷ 3 | never stored |
+| Projected bonus points | derived: unspent ÷ 10 | never stored |
 
 `app/features/scoring/services/scoring.service.ts` assembles the two views
 side by side; `useScoringRealtime` refreshes them when a solution is approved.

@@ -104,7 +104,7 @@ export interface AdminTeamAuctionAllocation {
   team_name: string;
   wallet_balance: number;
   total_spent: number;
-  projected_bonus_points: number; // Math.floor(wallet_balance / 3) per Rule Book §9.8
+  projected_bonus_points: number; // Math.floor(wallet_balance / 10) per Rule Book §9.8
   round1_slot: AdminWonSlotSummary | null;
   round2_slot: AdminWonSlotSummary | null;
   round1_won: boolean;
@@ -284,7 +284,11 @@ export interface BiddingResultTeam {
   problems: BiddingResultProblem[];
   won_count: number;
   total_base_dev_seconds: number;
-  /** Total admin-configured development time add-on (base excluded). */
+  /** Per-team add-on override in seconds; null/undefined means "use the default". */
+  dev_addon_seconds?: number | null;
+  /** Global default add-on in seconds (migration 031). */
+  admin_addon_dev_seconds?: number;
+  /** Effective admin add-on applied to this team (base and bonus excluded). */
   total_addon_dev_seconds?: number;
   total_bonus_dev_seconds: number;
   /** Total = total_base + total_addon + total_bonus. */
@@ -306,11 +310,17 @@ export interface AdminDevTimeConfig {
 /** Central contest flow state (development timer + submissions) for teams. */
 export interface ContestFlowState {
   dev_timer_started_at_ms: number | null;
+  /** Epoch millis of the active pause, or null while the clock is running. */
+  dev_timer_paused_at_ms?: number | null;
+  /** Total seconds banked across completed pauses. */
+  dev_timer_paused_total_seconds?: number;
   dev_timer_total_seconds: number;
   dev_timer_remaining_seconds: number;
-  dev_timer_status: 'not_started' | 'running' | 'finished';
+  dev_timer_status: 'not_started' | 'running' | 'paused' | 'finished';
   submissions_enabled: boolean;
   submissions_manually_enabled: boolean;
+  /** True when an admin explicitly disabled the portal (overrides auto-enable). */
+  submissions_suppressed?: boolean;
   submissions_source: 'none' | 'manual' | 'auto';
   server_time: string | null;
 }

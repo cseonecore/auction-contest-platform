@@ -20,6 +20,7 @@ import { fetchBiddingResults } from '@/features/admin/services/adminAuctionServi
 import {
   fetchAdminDevTimeConfig,
   saveAdminDevAddonMinutes,
+  saveTeamDevAddonMinutes,
 } from '@/features/admin/services/contestFlowService';
 import type { AdminDevTimeConfig, BiddingResultTeam } from '@/features/admin/types/auctionAdmin';
 
@@ -132,6 +133,19 @@ function AdminResultsContent() {
     setIsSavingAddon(false);
   }, [addonInput, loadData]);
 
+  // Per-team add-on written inline from the results table (minutes; null = default).
+  const handleSaveTeamAddon = useCallback(
+    async (teamId: string, minutes: number | null) => {
+      const res = await saveTeamDevAddonMinutes(teamId, minutes);
+      if (res.success) {
+        await loadData(true);
+        return { success: true };
+      }
+      return { success: false, error: res.error || 'Failed to save the team add-on.' };
+    },
+    [loadData]
+  );
+
   return (
     <div className="flex min-h-screen flex-col bg-[#0d0d0d] font-sans text-white select-none">
       <AdminHeader
@@ -161,22 +175,23 @@ function AdminResultsContent() {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-white/10">
               <div>
                 <h2 className="text-sm font-bold text-white tracking-tight">
-                  Development Time Configuration
+                  Default Development Add-on
                 </h2>
                 <p className="text-xs text-zinc-400 mt-0.5">
-                  Total development time = Base ({formatDevMinutes(devConfig.base_dev_seconds)}) + Admin add-on.
-                  Changes appear in team results below.
+                  This default applies only to teams without an individual override. Set it to 0 if
+                  only selected teams should receive extra time, then type minutes in the{' '}
+                  <span className="text-zinc-300 font-semibold">Team Add-on</span> column below.
                 </p>
               </div>
               <span className="text-[11px] text-zinc-400 font-mono text-right">
-                Current total: {formatDevMinutes(devConfig.total_dev_seconds)} (base {formatDevMinutes(devConfig.base_dev_seconds)} + add-on {Math.round(devConfig.addon_dev_seconds / 60)} min)
+                Current default total: {formatDevMinutes(devConfig.total_dev_seconds)} (base {formatDevMinutes(devConfig.base_dev_seconds)} + default add-on {Math.round(devConfig.addon_dev_seconds / 60)} min)
               </span>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider block mb-1.5">
-                  Admin Add-on Time (minutes)
+                  Default Add-on Time (minutes)
                 </label>
                 <div className="flex items-center gap-2">
                   <input
@@ -200,7 +215,9 @@ function AdminResultsContent() {
                   </button>
                 </div>
                 <p className="text-[11px] text-zinc-500 mt-1.5">
-                  Saved add-on: {Math.round(devConfig.addon_dev_seconds / 60)} minutes. The base development time of {formatDevMinutes(devConfig.base_dev_seconds)} is never changed by saving the add-on.
+                  Saved default: {Math.round(devConfig.addon_dev_seconds / 60)} minutes. The base
+                  development time of {formatDevMinutes(devConfig.base_dev_seconds)} is never changed
+                  by saving the add-on. Teams with their own value keep it.
                 </p>
                 {addonFeedback && (
                   <p
@@ -221,7 +238,7 @@ function AdminResultsContent() {
                   <span className="text-[11px] text-zinc-400 uppercase tracking-wider font-bold">Total Dev Time</span>
                 </div>
                 <div className="mt-1 text-[11px] font-mono text-zinc-500">
-                  = Base {formatDevMinutes(devConfig.base_dev_seconds)} + Add-on{' '}
+                  = Base {formatDevMinutes(devConfig.base_dev_seconds)} + default add-on{' '}
                   {Math.round(devConfig.addon_dev_seconds / 60)} min
                 </div>
               </div>
@@ -239,6 +256,8 @@ function AdminResultsContent() {
           teams={teams}
           isLoading={isLoading}
           onRefresh={() => loadData(false)}
+          defaultAddonSeconds={devConfig?.addon_dev_seconds ?? 0}
+          onSaveTeamAddon={handleSaveTeamAddon}
         />
       </main>
     </div>

@@ -123,27 +123,28 @@ export async function POST(request: Request) {
       case "close_slot":
         return call("close_bidding", { p_slot_id: body.slotId ?? null });
       case "finalize":
+        return call("finalize_auction", { p_slot_id: body.slotId ?? null });
       case "end_auction":
-        return call("end_auction");
+        return call("end_auction_session");
       case "pause_auction":
         return call("pause_auction");
       case "resume_auction":
         return call("resume_auction");
       case "advance":
       case "next_slot":
-        return call("advance_auction_slot");
+        return call("advance_auction");
       case "skip_slot":
         return call("skip_slot", {
           p_slot_id: body.slotId,
-          p_reason: body.reason ?? "Skipped by admin",
         });
       case "reset_auction":
-        return call("full_auction_reset");
+        return call("reset_auction");
 
       // ── Timer controls (Admin Only) ─────────────────────────────
       case "extend_timer":
-        return call("extend_auction_timer", {
+        return call("adjust_bidding_timer", {
           p_seconds: Math.floor(Number(body.seconds ?? 15)),
+          p_slot_id: body.slotId ?? null,
           p_reason: body.reason ?? "admin",
         });
       case "adjust_timer":

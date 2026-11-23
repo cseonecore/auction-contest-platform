@@ -923,6 +923,147 @@ async function main() {
     return 'Skipped slot successfully reopened for Round 3 recovery'
   })
 
+  // ─────────────────────────────────────────────────────────────────────────
+  group('7. Development timer pause/resume + submission portal toggle (030)')
+  // ─────────────────────────────────────────────────────────────────────────
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  await check('reset clears the dev timer AND the submission portal', async () => {
+    await asUser(db, ADMIN, 'admin')
+    const res = (await db.query(`select public.reset_dev_timer() as r`)).rows[0].r
+    assert(res.dev_timer_status === 'not_started', `timer is ${res.dev_timer_status}`)
+    assert(res.dev_timer_started_at_ms === null, 'timer start was not cleared')
+    assert(res.dev_timer_paused_at_ms === null, 'pause marker was not cleared')
+    assert(res.submissions_enabled === false, 'submission portal was not closed')
+    assert(res.submissions_suppressed === false, 'suppression flag was not cleared')
+    return 'timer not started, portal closed'
+  })
+
+  let runningRemaining = 0
+  await check('start begins a fresh timer that counts down', async () => {
+    await asUser(db, ADMIN, 'admin')
+    const started = (await db.query(`select public.start_dev_timer() as r`)).rows[0].r
+    assert(started.dev_timer_status === 'running', `timer is ${started.dev_timer_status}`)
+    runningRemaining = started.dev_timer_remaining_seconds
+    await sleep(1200)
+    const later = (await db.query(`select public.get_contest_flow_state() as r`)).rows[0].r
+    assert(
+      later.dev_timer_remaining_seconds < runningRemaining,
+      `remaining did not decrease (${runningRemaining} → ${later.dev_timer_remaining_seconds})`
+    )
+    return `${runningRemaining}s → ${later.dev_timer_remaining_seconds}s`
+  })
+
+  let frozenRemaining = 0
+  await check('pause freezes the remaining time', async () => {
+    await asUser(db, ADMIN, 'admin')
+    const paused = (await db.query(`select public.pause_dev_timer() as r`)).rows[0].r
+    assert(paused.dev_timer_status === 'paused', `timer is ${paused.dev_timer_status}`)
+    assert(paused.dev_timer_paused_at_ms !== null, 'pause marker missing')
+    frozenRemaining = paused.dev_timer_remaining_seconds
+    await sleep(1200)
+    const later = (await db.query(`select public.get_contest_flow_state() as r`)).rows[0].r
+    assert(
+      later.dev_timer_remaining_seconds === frozenRemaining,
+      `remaining moved while paused (${frozenRemaining} → ${later.dev_timer_remaining_seconds})`
+    )
+    return `frozen at ${frozenRemaining}s`
+  })
+
+  await check('a paused team cannot enter the submission window', async () => {
+    const status = (
+      await db.query(`select public.get_team_dev_status($1) as r`, [TEAM_A])
+    ).rows[0].r
+    assert(status.dev_timer_status === 'paused', `team timer is ${status.dev_timer_status}`)
+    assert(status.submission_window_open === false, 'submission window stayed open while paused')
+    return 'window closed while paused'
+  })
+
+  await check('resume continues from the frozen time and clears the pause', async () => {
+    await asUser(db, ADMIN, 'admin')
+    const resumed = (await db.query(`select public.start_dev_timer() as r`)).rows[0].r
+    assert(resumed.dev_timer_status === 'running', `timer is ${resumed.dev_timer_status}`)
+    assert(resumed.dev_timer_paused_at_ms === null, 'pause marker survived resume')
+    const drift = Math.abs(resumed.dev_timer_remaining_seconds - frozenRemaining)
+    assert(drift <= 1, `resume jumped ${drift}s instead of continuing at ${frozenRemaining}s`)
+    return `resumed at ${resumed.dev_timer_remaining_seconds}s (frozen ${frozenRemaining}s)`
+  })
+
+  await check('disable submission overrides the running timer', async () => {
+    await asUser(db, ADMIN, 'admin')
+    const off = (await db.query(`select public.disable_submissions() as r`)).rows[0].r
+    assert(off.submissions_enabled === false, 'portal stayed enabled')
+    assert(off.submissions_suppressed === true, 'suppression flag not set')
+    assert(off.submissions_source === 'none', `source is ${off.submissions_source}`)
+    const later = (await db.query(`select public.get_contest_flow_state() as r`)).rows[0].r
+    assert(later.submissions_enabled === false, 'the portal re-opened by itself')
+    return 'disabled and suppressed'
+  })
+
+  await check('enable submission clears the suppression flag', async () => {
+    await asUser(db, ADMIN, 'admin')
+    const on = (await db.query(`select public.enable_submissions() as r`)).rows[0].r
+    assert(on.submissions_enabled === true, 'portal did not open')
+    assert(on.submissions_suppressed === false, 'suppression flag survived enable')
+    assert(on.submissions_source === 'manual', `source is ${on.submissions_source}`)
+    return 'manual enable wins'
+  })
+
+  await check('reset after pausing returns a clean slate', async () => {
+    await asUser(db, ADMIN, 'admin')
+    await db.query(`select public.pause_dev_timer()`)
+    const res = (await db.query(`select public.reset_dev_timer() as r`)).rows[0].r
+    assert(res.dev_timer_status === 'not_started', `timer is ${res.dev_timer_status}`)
+    assert(res.dev_timer_paused_at_ms === null, 'pause survived reset')
+    assert(res.dev_timer_paused_total_seconds === 0, 'banked pause time survived reset')
+    assert(res.submissions_enabled === false, 'portal survived reset')
+    assert(res.submissions_suppressed === false, 'suppression survived reset')
+    return 'timer + portal cleared'
+  })
+
+  // ─────────────────────────────────────────────────────────────────────────
+  group('8. Per-team add-on overrides (031)')
+  // ─────────────────────────────────────────────────────────────────────────
+  await check('the default add-on applies only to teams without an override', async () => {
+    await asUser(db, ADMIN, 'admin')
+    await db.query(`select public.set_admin_dev_addon_seconds(300)`) // 5 minutes
+    await db.query(`select public.set_team_dev_addon_seconds($1, 900)`, [TEAM_A]) // 15 minutes
+
+    const data = (await db.query(`select public.get_bidding_results() as r`)).rows[0].r
+    const a = data.teams.find((t) => t.team_id === TEAM_A)
+    const b = data.teams.find((t) => t.team_id === TEAM_B)
+
+    assert(data.admin_dev_addon_seconds === 300, `global default is ${data.admin_dev_addon_seconds}s`)
+    assert(a.dev_addon_seconds === 900, `Team A override is ${a.dev_addon_seconds}s`)
+    assert(a.total_addon_dev_seconds === 900, `Team A effective add-on is ${a.total_addon_dev_seconds}s`)
+    assert(b.dev_addon_seconds === null, `Team B unexpectedly has an override: ${b.dev_addon_seconds}`)
+    assert(b.total_addon_dev_seconds === 300, `Team B effective add-on is ${b.total_addon_dev_seconds}s`)
+
+    for (const team of [a, b]) {
+      const expected =
+        team.total_base_dev_seconds + team.total_addon_dev_seconds + team.total_bonus_dev_seconds
+      assert(
+        team.total_dev_seconds === expected,
+        `${team.team_name} total ${team.total_dev_seconds}s != ${expected}s`
+      )
+    }
+    return 'A 15 min override, B inherits 5 min default'
+  })
+
+  await check('a blank value clears the override and restores the default', async () => {
+    await asUser(db, ADMIN, 'admin')
+    const status = (await db.query(`select public.set_team_dev_addon_seconds($1, null) as r`, [TEAM_A]))
+      .rows[0].r
+    assert(status.dev_addon_seconds === 300, `cleared override resolved to ${status.dev_addon_seconds}s`)
+
+    const data = (await db.query(`select public.get_bidding_results() as r`)).rows[0].r
+    const a = data.teams.find((t) => t.team_id === TEAM_A)
+    assert(a.dev_addon_seconds === null, 'Team A still has an override')
+    assert(a.total_addon_dev_seconds === 300, `Team A effective add-on is ${a.total_addon_dev_seconds}s`)
+    await db.query(`select public.set_admin_dev_addon_seconds(0)`)
+    return 'Team A back on the default'
+  })
+
   await db.close()
 
   const failed = results.filter((r) => !r.ok)

@@ -109,11 +109,11 @@ interface RawAuditLogQueryResult {
 
 /**
  * Calculates projected bonus points for unspent balance per Rule Book §9.8:
- * "1 bonus evaluation point per 3 unspent auction points, rounded down."
+ * "1 bonus evaluation point per 10 unspent auction points, rounded down."
  */
 export function calculateBonusPoints(unspentBalance: number): number {
   if (typeof unspentBalance !== 'number' || isNaN(unspentBalance)) return 0;
-  return Math.floor(Math.max(0, unspentBalance) / 3);
+  return Math.floor(Math.max(0, unspentBalance) / 10);
 }
 
 // ─────────────────────────────────────────────────────────────

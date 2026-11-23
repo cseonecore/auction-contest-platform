@@ -22,13 +22,20 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Search, RefreshCw, Download, Trophy, Clock, Coins, ChevronDown, ChevronUp } from 'lucide-react';
+import { Search, RefreshCw, Download, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import type { BiddingResultTeam, BiddingResultProblem } from '../../types/auctionAdmin';
 
 interface UnifiedBiddingResultsTableProps {
   teams: BiddingResultTeam[];
   isLoading: boolean;
   onRefresh: () => Promise<void>;
+  /** Global default add-on (seconds) applied to teams without an override. */
+  defaultAddonSeconds?: number;
+  /** Persist one team's add-on in minutes; null clears the override. */
+  onSaveTeamAddon?: (
+    teamId: string,
+    minutes: number | null
+  ) => Promise<{ success: boolean; error?: string }>;
 }
 
 function formatDevTime(seconds: number): string {
@@ -56,10 +63,15 @@ export function UnifiedBiddingResultsTable({
   teams,
   isLoading,
   onRefresh,
+  defaultAddonSeconds = 0,
+  onSaveTeamAddon,
 }: UnifiedBiddingResultsTableProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterWon, setFilterWon] = useState<'all' | 'won' | 'nowins'>('all');
   const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null);
+  const [addonDrafts, setAddonDrafts] = useState<Record<string, string>>({});
+  const [savingAddonTeam, setSavingAddonTeam] = useState<string | null>(null);
+  const [addonError, setAddonError] = useState<string | null>(null);
 
   // Safely extract teams array even if an object was passed
   const safeTeams = useMemo<BiddingResultTeam[]>(() => {
@@ -173,6 +185,51 @@ export function UnifiedBiddingResultsTable({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const addonDraftFor = (team: BiddingResultTeam): string =>
+    addonDrafts[team.team_id] ??
+    (team.dev_addon_seconds == null ? '' : String(Math.round(team.dev_addon_seconds / 60)));
+
+  const commitTeamAddon = async (team: BiddingResultTeam, raw: string) => {
+    if (!onSaveTeamAddon || savingAddonTeam === team.team_id) return;
+
+    const trimmed = raw.trim();
+    let minutes: number | null = null;
+    if (trimmed !== '') {
+      const parsed = Number(trimmed);
+      if (!Number.isFinite(parsed) || parsed < 0 || parsed > 600) {
+        setAddonError(`${team.team_name}: enter between 0 and 600 minutes, or leave blank to use the default.`);
+        return;
+      }
+      minutes = Math.round(parsed);
+    }
+
+    const current =
+      team.dev_addon_seconds == null ? null : Math.round(team.dev_addon_seconds / 60);
+    if (minutes === current) {
+      setAddonDrafts((prev) => {
+        const next = { ...prev };
+        delete next[team.team_id];
+        return next;
+      });
+      return;
+    }
+
+    setSavingAddonTeam(team.team_id);
+    setAddonError(null);
+    const res = await onSaveTeamAddon(team.team_id, minutes);
+    if (res.success) {
+      setAddonDrafts((prev) => {
+        const next = { ...prev };
+        delete next[team.team_id];
+        return next;
+      });
+      await onRefresh();
+    } else {
+      setAddonError(`${team.team_name}: ${res.error || 'Failed to save the add-on.'}`);
+    }
+    setSavingAddonTeam(null);
   };
 
   return (
@@ -291,6 +348,12 @@ export function UnifiedBiddingResultsTable({
         </div>
       </div>
 
+      {addonError && (
+        <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-300">
+          {addonError}
+        </div>
+      )}
+
       {/* Main Table */}
       <div className="bg-[#141518] border border-white/10 rounded-2xl overflow-hidden shadow-xl">
         <div className="overflow-x-auto">
@@ -304,8 +367,8 @@ export function UnifiedBiddingResultsTable({
                 <th className="py-3 px-3 text-right">Total Spent</th>
                 <th className="py-3 px-4">Acquired Problems &amp; Amounts</th>
                 <th className="py-3 px-3 text-right">Base Dev</th>
-                <th className="py-3 px-3 text-right">Admin Add-on</th>
-                <th className="py-3 px-3 text-right">Add-on Time</th>
+                <th className="py-3 px-3 text-right" title="Type minutes per team; blank uses the default">Team Add-on (min)</th>
+                <th className="py-3 px-3 text-right">Bonus Time</th>
                 <th className="py-3 px-4 text-right">Total Dev Time</th>
               </tr>
             </thead>
@@ -320,6 +383,8 @@ export function UnifiedBiddingResultsTable({
                 filteredTeams.map((team) => {
                   const isExpanded = expandedTeamId === team.team_id;
                   const hasProblems = team.problems && team.problems.length > 0;
+                  const addonDraft = addonDraftFor(team);
+                  const isSavingAddon = savingAddonTeam === team.team_id;
 
                   return (
                     <React.Fragment key={team.team_id}>
@@ -425,18 +490,54 @@ export function UnifiedBiddingResultsTable({
                           {formatDevTime(team.total_base_dev_seconds)}
                         </td>
 
-                        {/* Admin Add-on Time (configured by admin on results page) */}
-                        <td className="py-3.5 px-3 text-right font-mono">
-                          {team.total_addon_dev_seconds && team.total_addon_dev_seconds > 0 ? (
-                            <span className="text-emerald-400 font-bold">
-                              +{formatDevTime(team.total_addon_dev_seconds)}
-                            </span>
-                          ) : (
-                            <span className="text-zinc-500">0 min</span>
-                          )}
+                        {/* Per-team add-on: type minutes directly in the row */}
+                        <td className="py-3.5 px-3 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <input
+                              type="number"
+                              min={0}
+                              max={600}
+                              step={1}
+                              value={addonDraft}
+                              placeholder={
+                                (team.admin_addon_dev_seconds ?? defaultAddonSeconds) > 0
+                                  ? String(
+                                      Math.round(
+                                        (team.admin_addon_dev_seconds ?? defaultAddonSeconds) / 60
+                                      )
+                                    )
+                                  : '0'
+                              }
+                              onChange={(e) =>
+                                setAddonDrafts((prev) => ({
+                                  ...prev,
+                                  [team.team_id]: e.target.value,
+                                }))
+                              }
+                              onBlur={(e) => void commitTeamAddon(team, e.currentTarget.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') e.currentTarget.blur();
+                              }}
+                              disabled={!onSaveTeamAddon || isSavingAddon}
+                              aria-label={`Development add-on minutes for ${team.team_name}`}
+                              title="Type this team's add-on in minutes. Leave blank to use the global default."
+                              className={`w-16 rounded-md border bg-zinc-900 px-2 py-1 text-right font-mono text-xs text-emerald-300 focus:outline-none focus:ring-2 focus:ring-[#fe5102] disabled:opacity-60 ${
+                                team.dev_addon_seconds != null
+                                  ? 'border-emerald-500/40'
+                                  : 'border-zinc-700'
+                              }`}
+                            />
+                            <span className="text-[10px] text-zinc-500">min</span>
+                            {isSavingAddon && <Loader2 className="h-3 w-3 animate-spin text-emerald-400" />}
+                          </div>
+                          <span className="mt-0.5 block text-[9px] text-zinc-500">
+                            {team.dev_addon_seconds != null
+                              ? 'team override'
+                              : `default ${formatDevTime(team.total_addon_dev_seconds ?? 0)}`}
+                          </span>
                         </td>
 
-                        {/* Add-on Time Earned */}
+                        {/* Earned bonus time from evaluations */}
                         <td className="py-3.5 px-3 text-right font-mono">
                           {team.total_bonus_dev_seconds > 0 ? (
                             <span className="text-emerald-400 font-bold">
@@ -458,7 +559,7 @@ export function UnifiedBiddingResultsTable({
                       {/* Expanded Members Drawer */}
                       {isExpanded && (
                         <tr className="bg-zinc-900/50">
-                          <td colSpan={9} className="py-3 px-6">
+                          <td colSpan={10} className="py-3 px-6">
                             <div className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-2">
                               Team Roster ({team.members?.length || 0} members)
                             </div>
@@ -495,6 +596,13 @@ export function UnifiedBiddingResultsTable({
           </table>
         </div>
       </div>
+
+      <p className="text-[11px] text-zinc-500">
+        <span className="font-semibold text-zinc-400">Per-team add-on:</span> type minutes in a
+        team&apos;s row and press Enter (or click away) to save. Leave the box blank to inherit the
+        global default of {formatDevTime(defaultAddonSeconds)}. Only teams with a value get the extra
+        time; the total updates immediately.
+      </p>
     </div>
   );
 }

@@ -453,17 +453,17 @@ console.log("\n\x1b[36m--- Section 2: Admin & Judging Authorization & State Tran
 // -----------------------------------------------------------------------------
 console.log("\n\x1b[36m--- Section 3: Competition Scoring & Rule Book §9.8 Integrity ---\x1b[0m");
 
-// Test 20: Rule Book §9.8: Math.floor(Math.max(0, balance) / 3)
+// Test 20: Rule Book §9.8: Math.floor(Math.max(0, balance) / 10)
 {
   const testCases = [
     { balance: 0, expected: 0 },
-    { balance: 1, expected: 0 },
-    { balance: 2, expected: 0 },
-    { balance: 3, expected: 1 },
-    { balance: 5, expected: 1 },
-    { balance: 6, expected: 2 },
-    { balance: 299, expected: 99 },
-    { balance: 300, expected: 100 },
+    { balance: 9, expected: 0 },
+    { balance: 10, expected: 1 },
+    { balance: 19, expected: 1 },
+    { balance: 20, expected: 2 },
+    { balance: 99, expected: 9 },
+    { balance: 100, expected: 10 },
+    { balance: 300, expected: 30 },
     { balance: -50, expected: 0 }, // Negative balance must yield 0, not negative points
   ];
 
@@ -475,7 +475,7 @@ console.log("\n\x1b[36m--- Section 3: Competition Scoring & Rule Book §9.8 Inte
   assert(
     allMatch,
     20,
-    "Rule Book §9.8 bonus points formula: Math.floor(Math.max(0, balance) / 3)",
+    "Rule Book §9.8 bonus points formula: Math.floor(Math.max(0, balance) / 10)",
     "Verified across 9 test boundary cases including negative and unspent budget"
   );
 }
@@ -507,16 +507,16 @@ console.log("\n\x1b[36m--- Section 3: Competition Scoring & Rule Book §9.8 Inte
 
 // Test 22: Presentation score and auction bonus points are tracked separately and summed
 {
-  const teamWalletBalance = 150; // 150 / 3 = 50 bonus points
+  const teamWalletBalance = 150; // 150 / 10 = 15 bonus points
   const presentationScore = 88.5;
   const projectedBonus = calculateRuleBook98Bonus(teamWalletBalance);
   const totalScore = presentationScore + projectedBonus;
 
   assert(
-    projectedBonus === 50 && totalScore === 138.5,
+    projectedBonus === 15 && totalScore === 103.5,
     22,
     "Presentation score and budget bonus points combine accurately without distortion",
-    `Presentation: 88.5 + §9.8 Bonus: 50 = Total: 138.5`
+    `Presentation: 88.5 + §9.8 Bonus: 15 = Total: 103.5`
   );
 }
 

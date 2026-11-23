@@ -63,7 +63,7 @@ export async function fetchLiveAuctionState(): Promise<ServiceResult<LiveAuction
           bonus_time_seconds: 60,
           solving_timer_seconds: 4500,
           starting_wallet_balance: 100,
-          bonus_points_rate: { points: 1, per_unspent: 3 },
+          bonus_points_rate: { points: 1, per_unspent: 10 },
         },
         events: state.events ?? [],
         eliminations: state.eliminations ?? [],

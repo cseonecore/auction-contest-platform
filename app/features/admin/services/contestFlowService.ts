@@ -29,12 +29,15 @@ const FLOW_SETTING_KEYS = [
   'solving_timer_seconds',
   'admin_dev_addon_seconds',
   'dev_timer_started_at',
+  'dev_timer_paused_at',
+  'dev_timer_paused_total_ms',
   'submissions_enabled',
   'submissions_manually_enabled',
+  'submissions_suppressed',
 ];
 
 const FALLBACK_WARNING =
-  'Contest-flow RPCs are not deployed on this Supabase project; using the direct settings fallback. Apply supabase/migrations/026_admin_dev_addon_and_top25_locks.sql, 027_contest_flow.sql, and 028_team_dev_timers.sql to restore the 75-minute base, server-side timer math, team deadlines, and audit logging.';
+  'Contest-flow RPCs are not deployed on this Supabase project; using the direct settings fallback. Apply supabase/migrations/026_admin_dev_addon_and_top25_locks.sql, 027_contest_flow.sql, 028_team_dev_timers.sql, and 030_dev_timer_pause_and_submission_toggle.sql to restore the 75-minute base, pause/resume, server-side timer math, team deadlines, and audit logging.';
 
 type SettingsMap = Map<string, Json>;
 
@@ -142,26 +145,38 @@ function buildDevTimeConfig(settings: SettingsMap): AdminDevTimeConfig {
 function computeFlowState(settings: SettingsMap, nowMs: number): ContestFlowState {
   const config = buildDevTimeConfig(settings);
   const startedMs = Math.floor(toFiniteNumber(settings.get('dev_timer_started_at'), 0));
+  const pausedAtMs = Math.floor(toFiniteNumber(settings.get('dev_timer_paused_at'), 0));
+  const pausedTotalMs = Math.max(
+    0,
+    Math.floor(toFiniteNumber(settings.get('dev_timer_paused_total_ms'), 0))
+  );
+  const paused = pausedAtMs > 0;
   const enabled = toBoolean(settings.get('submissions_enabled'), false);
   const manual = toBoolean(settings.get('submissions_manually_enabled'), false);
+  const suppressed = toBoolean(settings.get('submissions_suppressed'), false);
 
   let remaining = config.total_dev_seconds;
   let status: ContestFlowState['dev_timer_status'] = 'not_started';
 
   if (startedMs > 0) {
-    const elapsed = Math.max(0, Math.floor((nowMs - startedMs) / 1000));
-    remaining = Math.max(0, config.total_dev_seconds - elapsed);
-    status = remaining <= 0 ? 'finished' : 'running';
+    // While paused the clock is frozen at the pause timestamp.
+    const effectiveNowMs = paused ? pausedAtMs : nowMs;
+    const elapsedMs = Math.max(0, effectiveNowMs - startedMs - pausedTotalMs);
+    remaining = Math.max(0, config.total_dev_seconds - Math.floor(elapsedMs / 1000));
+    status = remaining <= 0 ? 'finished' : paused ? 'paused' : 'running';
   }
 
   return {
     dev_timer_started_at_ms: startedMs > 0 ? startedMs : null,
+    dev_timer_paused_at_ms: paused ? pausedAtMs : null,
+    dev_timer_paused_total_seconds: Math.floor(pausedTotalMs / 1000),
     dev_timer_total_seconds: config.total_dev_seconds,
     dev_timer_remaining_seconds: remaining,
     dev_timer_status: status,
-    submissions_enabled: enabled,
+    submissions_enabled: suppressed ? false : enabled,
     submissions_manually_enabled: manual,
-    submissions_source: manual ? 'manual' : enabled ? 'auto' : 'none',
+    submissions_suppressed: suppressed,
+    submissions_source: suppressed ? 'none' : manual ? 'manual' : enabled ? 'auto' : 'none',
     server_time: new Date(nowMs).toISOString(),
   };
 }
@@ -172,7 +187,8 @@ async function applyAutoEnableFallback(flow: ContestFlowState): Promise<ContestF
     flow.dev_timer_status === 'running' &&
     flow.dev_timer_remaining_seconds <= AUTO_ENABLE_WINDOW_SECONDS &&
     !flow.submissions_enabled &&
-    !flow.submissions_manually_enabled;
+    !flow.submissions_manually_enabled &&
+    !flow.submissions_suppressed;
 
   if (!shouldAutoEnable) return flow;
 
@@ -248,6 +264,53 @@ export async function saveAdminDevAddonMinutes(minutes: number): Promise<Service
   return { success: true, data: buildDevTimeConfig(settings), warning: FALLBACK_WARNING };
 }
 
+/**
+ * Set (or clear) one team's development add-on.
+ *
+ * `minutes === null` removes the override so the team inherits the global
+ * admin add-on again. The SQL RPC also refuses to shorten a deadline when the
+ * team already submitted; that message is surfaced unchanged.
+ */
+export async function saveTeamDevAddonMinutes(
+  teamId: string,
+  minutes: number | null
+): Promise<ServiceResult<TeamDevStatus>> {
+  const seconds =
+    minutes === null
+      ? null
+      : Math.min(600, Math.max(0, Math.round(minutes))) * 60;
+
+  try {
+    const { data, error } = await supabase.rpc('set_team_dev_addon_seconds', {
+      p_team_id: teamId,
+      p_seconds: seconds,
+    });
+    if (!error && data) {
+      return { success: true, data: data as TeamDevStatus };
+    }
+    if (error && !isMissingRpcError(error)) {
+      return { success: false, error: error.message || 'Failed to save the team add-on.' };
+    }
+  } catch (err) {
+    if (!isMissingRpcError(err)) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Unknown error saving the team add-on.',
+      };
+    }
+  }
+
+  // Fallback for projects without migration 028: the column and the settings
+  // RLS policy still let an authenticated admin write the override directly.
+  const { error: updateError } = await supabase
+    .from('teams')
+    .update({ dev_addon_seconds: seconds })
+    .eq('id', teamId);
+  if (updateError) return { success: false, error: updateError.message };
+
+  return getTeamDevStatus(teamId);
+}
+
 /** Authoritative contest flow state: dev timer + submissions flags. */
 export async function fetchContestFlowState(): Promise<ServiceResult<ContestFlowState>> {
   try {
@@ -274,8 +337,24 @@ async function startDevTimerFallback(): Promise<ServiceResult<ContestFlowState>>
   const initial = await readFlowFallback();
   if (!initial.success || !initial.data) return initial;
 
+  const startedAt = initial.data.dev_timer_started_at_ms;
+  const pausedAt = initial.data.dev_timer_paused_at_ms ?? null;
+
+  // Resume a paused timer: bank the elapsed pause and clear the pause marker.
+  if (startedAt !== null && pausedAt !== null) {
+    const nowMs = Date.now();
+    const banked =
+      (initial.data.dev_timer_paused_total_seconds ?? 0) * 1000 + Math.max(0, nowMs - pausedAt);
+    const writeError = await writeSettings([
+      { key: 'dev_timer_paused_total_ms', value: banked },
+      { key: 'dev_timer_paused_at', value: 0 },
+    ]);
+    if (writeError) return { success: false, error: writeError };
+    return readFlowFallback();
+  }
+
   // Idempotent: never restart a timer that has already been started.
-  if (initial.data.dev_timer_started_at_ms !== null) return initial;
+  if (startedAt !== null) return initial;
 
   const startedMs = Date.now();
 
@@ -298,6 +377,13 @@ async function startDevTimerFallback(): Promise<ServiceResult<ContestFlowState>>
       return { success: false, error: insertError.message };
     }
   }
+
+  // A fresh run must not inherit a stale pause from a previous session.
+  const resetPauseError = await writeSettings([
+    { key: 'dev_timer_paused_at', value: 0 },
+    { key: 'dev_timer_paused_total_ms', value: 0 },
+  ]);
+  if (resetPauseError) return { success: false, error: resetPauseError };
 
   let next = await readFlowFallback();
   if (next.success && next.data && next.data.dev_timer_started_at_ms === null) {
@@ -331,6 +417,36 @@ export async function startDevTimer(): Promise<ServiceResult<ContestFlowState>> 
   return startDevTimerFallback();
 }
 
+/** Admin pauses the development timer without losing elapsed progress. */
+export async function pauseDevTimer(): Promise<ServiceResult<ContestFlowState>> {
+  try {
+    const { data, error } = await supabase.rpc('pause_dev_timer');
+    if (!error && data) {
+      return { success: true, data: data as ContestFlowState };
+    }
+    if (error && !isMissingRpcError(error)) {
+      return { success: false, error: error.message || 'Failed to pause the development timer.' };
+    }
+  } catch (err) {
+    if (!isMissingRpcError(err)) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Unknown error pausing development timer.',
+      };
+    }
+  }
+
+  const initial = await readFlowFallback();
+  if (!initial.success || !initial.data) return initial;
+  if (initial.data.dev_timer_status !== 'running') return initial;
+
+  const writeError = await writeSettings([
+    { key: 'dev_timer_paused_at', value: Date.now() },
+  ]);
+  if (writeError) return { success: false, error: writeError };
+  return readFlowFallback();
+}
+
 /** Admin resets the development timer so it can be started again. */
 export async function resetDevTimer(): Promise<ServiceResult<ContestFlowState>> {
   try {
@@ -350,7 +466,16 @@ export async function resetDevTimer(): Promise<ServiceResult<ContestFlowState>> 
     }
   }
 
-  const writeError = await writeSettings([{ key: 'dev_timer_started_at', value: 0 }]);
+  // Reset clears the development clock (including pause state) and the
+  // submission portal so the next run starts from a clean slate.
+  const writeError = await writeSettings([
+    { key: 'dev_timer_started_at', value: 0 },
+    { key: 'dev_timer_paused_at', value: 0 },
+    { key: 'dev_timer_paused_total_ms', value: 0 },
+    { key: 'submissions_enabled', value: false },
+    { key: 'submissions_manually_enabled', value: false },
+    { key: 'submissions_suppressed', value: false },
+  ]);
   if (writeError) return { success: false, error: writeError };
   return readFlowFallback();
 }
@@ -377,6 +502,35 @@ export async function enableSubmissions(): Promise<ServiceResult<ContestFlowStat
   const writeError = await writeSettings([
     { key: 'submissions_enabled', value: true },
     { key: 'submissions_manually_enabled', value: true },
+    { key: 'submissions_suppressed', value: false },
+  ]);
+  if (writeError) return { success: false, error: writeError };
+  return readFlowFallback();
+}
+
+/** Admin disables the submission portal (overrides the automatic window). */
+export async function disableSubmissions(): Promise<ServiceResult<ContestFlowState>> {
+  try {
+    const { data, error } = await supabase.rpc('disable_submissions');
+    if (!error && data) {
+      return { success: true, data: data as ContestFlowState };
+    }
+    if (error && !isMissingRpcError(error)) {
+      return { success: false, error: error.message || 'Failed to disable submissions.' };
+    }
+  } catch (err) {
+    if (!isMissingRpcError(err)) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Unknown error disabling submissions.',
+      };
+    }
+  }
+
+  const writeError = await writeSettings([
+    { key: 'submissions_enabled', value: false },
+    { key: 'submissions_manually_enabled', value: false },
+    { key: 'submissions_suppressed', value: true },
   ]);
   if (writeError) return { success: false, error: writeError };
   return readFlowFallback();
@@ -387,11 +541,19 @@ async function readTeamDevStatusFallback(teamId: string): Promise<ServiceResult<
     'solving_timer_seconds',
     'admin_dev_addon_seconds',
     'dev_timer_started_at',
+    'dev_timer_paused_at',
+    'dev_timer_paused_total_ms',
   ]);
   if (error) return { success: false, error };
 
   const config = buildDevTimeConfig(settings);
   const startedMs = Math.floor(toFiniteNumber(settings.get('dev_timer_started_at'), 0));
+  const pausedAtMs = Math.floor(toFiniteNumber(settings.get('dev_timer_paused_at'), 0));
+  const pausedTotalMs = Math.max(
+    0,
+    Math.floor(toFiniteNumber(settings.get('dev_timer_paused_total_ms'), 0))
+  );
+  const paused = pausedAtMs > 0;
   const nowMs = Date.now();
 
   // `dev_addon_seconds` / `dq_at` only exist after migration 028; retry with
@@ -432,28 +594,41 @@ async function readTeamDevStatusFallback(teamId: string): Promise<ServiceResult<
   );
   const effectiveAddon = team.dev_addon_seconds ?? config.addon_dev_seconds;
   const totalSeconds = Math.max(0, config.base_dev_seconds + effectiveAddon + bonusSeconds);
-  const deadlineMs = startedMs > 0 ? startedMs + totalSeconds * 1000 : null;
+  // While paused the deadline keeps sliding, so the remaining time is frozen.
+  const activePauseMs = paused ? Math.max(0, nowMs - pausedAtMs) : 0;
+  const deadlineMs =
+    startedMs > 0
+      ? startedMs + totalSeconds * 1000 + pausedTotalMs + activePauseMs
+      : null;
   const remainingSeconds =
     deadlineMs === null ? 0 : Math.max(0, Math.floor((deadlineMs - nowMs) / 1000));
   const status: TeamDevStatus['dev_timer_status'] =
-    deadlineMs === null ? 'not_started' : remainingSeconds <= 0 ? 'finished' : 'running';
+    deadlineMs === null
+      ? 'not_started'
+      : remainingSeconds <= 0
+      ? 'finished'
+      : paused
+      ? 'paused'
+      : 'running';
   const opensMs = deadlineMs === null ? null : deadlineMs - AUTO_ENABLE_WINDOW_SECONDS * 1000;
   const hasSubmission = (submissions?.length ?? 0) > 0;
   const dqAt = team.dq_at ?? null;
   const windowOpen =
     deadlineMs !== null &&
     opensMs !== null &&
+    !paused &&
     dqAt === null &&
     nowMs <= deadlineMs &&
     nowMs >= opensMs;
   const dqPending =
-    dqAt === null && deadlineMs !== null && deadlineMs < nowMs && !hasSubmission;
+    dqAt === null && !paused && deadlineMs !== null && deadlineMs < nowMs && !hasSubmission;
 
   return {
     success: true,
     data: {
       team_id: teamId,
       dev_timer_started_at_ms: startedMs > 0 ? startedMs : null,
+      dev_timer_paused_at_ms: paused ? pausedAtMs : null,
       dev_addon_seconds: effectiveAddon,
       dev_timer_total_seconds: totalSeconds,
       dev_timer_remaining_seconds: remainingSeconds,
