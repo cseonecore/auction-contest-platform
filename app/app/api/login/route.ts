@@ -52,10 +52,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const cleanTeamName = teamName.trim();
+    const inputTeamName = teamName?.trim() || "";
+    const cleanTeamName = inputTeamName.toLowerCase();
     const db = getDbClient();
 
     // 1. Strict Query: Find Team in Supabase (case-insensitive)
+    // Use lowercase lookup since team name casing may vary; ilike handles case-insensitivity
     const { data: initialTeam, error: teamErr } = await db
       .from("teams")
       .select("id, name, captain_id, locked, created_at")
@@ -64,9 +66,9 @@ export async function POST(request: Request) {
 
     let team = initialTeam;
 
-    // If not found, try without spaces in case user typed "Code Ninjas" for "CodeNinjas"
+    // If not found, try compact name (spaces removed) in case user typed "Code Ninjas" for "CodeNinjas"
     if (!team) {
-      const compactName = cleanTeamName.replace(/\s+/g, "");
+      const compactName = inputTeamName.replace(/\s+/g, "").toLowerCase();
       const { data: altTeam } = await db
         .from("teams")
         .select("id, name, captain_id, locked, created_at")

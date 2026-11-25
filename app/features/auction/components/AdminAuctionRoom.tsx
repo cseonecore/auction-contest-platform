@@ -571,10 +571,42 @@ export function AdminAuctionRoom() {
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [upload, setUpload] = useState<UploadState>(EMPTY_UPLOAD);
 
-  // ── Actions ─────────────────────────────────────────────────
-  const viewedNumber = viewedSlot
-    ? orderedPosition(viewedSlot.id) ?? viewedSlot.question_number ?? 1
-    : 0;
+  // ── Transition state & auto-advance ────────────────────────
+  const [transitionState, setTransitionState] = useState<'idle' | 'advancing' | 'completed'>(
+    'idle'
+  );
+  const [transitionStartTime, setTransitionStartTime] = useState<number | null>(null);
+  const [transitionTimeoutRef, setTransitionTimeoutRef] = useState<NodeJS.Timeout | null>(null);
+
+  // When the advance action succeeds and the session status is 'advancing',
+  // schedule the automatic transition after the 3-second delay.
+  useEffect(() => {
+    if (feedback?.type === 'success' && session?.status === 'advancing') {
+      // Clear any existing timeout
+      if (transitionTimeoutRef) {
+        clearTimeout(transitionTimeoutRef);
+      }
+      setTransitionStartTime(Date.now());
+      const newTimeout = setTimeout(async () => {
+        setTransitionState('completed');
+        void actions.completeNextTransition();
+        setTransitionState('idle');
+        setTransitionStartTime(null);
+      }, 3500);
+      setTransitionTimeoutRef(newTimeout);
+    }
+  }, [feedback, session?.status, transitionTimeoutRef, actions.completeNextTransition]);
+
+  // Clean up timeout on unmount or when feedback/state changes away
+  useEffect(() => {
+    return () => {
+      if (transitionTimeoutRef) {
+        clearTimeout(transitionTimeoutRef);
+      }
+    };
+  }, [transitionTimeoutRef]);
+
+  // ── Derived: display number ────────────────────────────────
   const displayNumber = liveItem
     ? orderedPosition(liveItem.id) ?? liveItem.question_number ?? 1
     : viewedNumber;
@@ -1651,11 +1683,20 @@ export function AdminAuctionRoom() {
                       setViewedId(pendingQueue[viewedIndex + 1]?.id ?? null);
                     }
                   }}
-                  disabled={busy || (!canNextLive && !canNextBrowse)}
+                  disabled={busy || transitionState !== 'idle'}
                   className={BTN_GREEN}
                 >
-                  Next
+                  {transitionState === 'advancing'
+                    ? transitionStartTime !== null
+                      ? `Advancing${formatClock(Math.max(0, 3 - Math.floor((Date.now() - transitionStartTime) / 1000)))}...`
+                      : 'Advancing...'
+                    : 'Next'}
                 </button>
+                {isLive && transitionState === 'advancing' && (
+                  <span className="text-xs text-zinc-400">
+                    Auto-advancing in...
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => void handleSkip()}

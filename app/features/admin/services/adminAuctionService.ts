@@ -129,6 +129,8 @@ export const finalizeAuction = (slotId?: string | null) =>
 
 export const advanceAuction = () => call("advance_auction");
 
+export const completeNextAuctionTransition = () => call("complete_next_auction_transition");
+
 export const skipSlot = (slotId: string) =>
   call("skip_slot", { p_slot_id: slotId });
 
@@ -173,6 +175,9 @@ export const eliminateTeam = (teamId: string, reason: string, rule = "manual") =
 
 export const restoreTeam = (teamId: string, note?: string) =>
   call("restore_team", { p_team_id: teamId, p_note: note ?? null });
+
+export const clearTeamDQ = (teamId: string) =>
+  call("clear_team_dq", { p_team_id: teamId });
 
 export const fetchEliminationHistory = () => call("get_elimination_history");
 

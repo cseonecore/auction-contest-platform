@@ -350,10 +350,11 @@ export function useAdminAuction(
   );
 
   /**
-   * Closes an active open slot.
+   * Closes an active slot.
    * - If highest bidder exists: assigns win and deducts points from wallet.
    * - If no bids: marks slot as skipped.
-   * Concurrency-guarded: rejects if another action is in progress or slot is not open.
+   * Concurrency-guarded: rejects if another action is in progress.
+   * Idempotent: safe to call on already-finalized slots (sold/skipped).
    */
   const handleCloseSlot = useCallback(
     async (slotId: string): Promise<boolean> => {
@@ -371,14 +372,6 @@ export function useAdminAuction(
         return false;
       }
 
-      if (target.status !== 'open') {
-        setActionFeedback({
-          type: 'error',
-          message: `Cannot close slot: status is currently "${target.status}". Only open slots can be closed.`,
-        });
-        return false;
-      }
-
       isExecutingActionRef.current = true;
       setActionInProgress({ slotId, action: 'close' });
       setActionFeedback(null);
@@ -393,12 +386,26 @@ export function useAdminAuction(
           return false;
         }
 
-        const isSold = res.data?.status === 'sold';
-        const msg = isSold
-          ? `Slot closed and SOLD for ${res.data?.winning_bid ?? 0} pts to winning team!`
-          : `Slot closed with 0 bids and marked as SKIPPED.`;
+        // Handle idempotent responses - slot may already be finalized
+        const currentStatus = res.data?.status;
+        const isSold = currentStatus === 'sold';
+        const isSkipped = currentStatus === 'skipped';
 
-        setActionFeedback({ type: 'success', message: msg });
+        if (isSold) {
+          const winnerName = target.winner_team?.name ?? 'Unknown team';
+          const msg = `Slot already sold - ${winnerName} won for ${res.data?.winning_bid ?? 0} pts.`;
+          setActionFeedback({ type: 'info', message: msg });
+        } else if (isSkipped) {
+          const msg = `Slot already skipped - no team was awarded.`;
+          setActionFeedback({ type: 'info', message: msg });
+        } else {
+          // Slot was open and is now finalized
+          const isSold = res.data?.status === 'sold';
+          const msg = isSold
+            ? `Slot closed and SOLD for ${res.data?.winning_bid ?? 0} pts to winning team!`
+            : `Slot closed with 0 bids and marked as SKIPPED.`;
+          setActionFeedback({ type: 'success', message: msg });
+        }
 
         setRefreshTrigger((prev) => prev + 1);
         return true;

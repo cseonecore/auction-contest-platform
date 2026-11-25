@@ -72,7 +72,54 @@ grant execute on function public.align_identities() to authenticated, service_ro
 
 
 -- ─────────────────────────────────────────────────────────────
--- 2. Strict captain place_bid()
+-- 2.1. Idempotent close_slot: safe to call even if slot already finalized
+-- ─────────────────────────────────────────────────────────────
+create or replace function public.close_slot(p_slot_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_slot   public.slots%rowtype;
+  v_balance integer;
+begin
+  if not public.is_admin() then
+    raise exception 'Admin access required to close auction slots';
+  end if;
+
+  -- Idempotency: if slot is already finalized, return current state immediately
+  select * into v_slot from public.slots where id = p_slot_id;
+
+  if v_slot.status = 'sold' then
+    select w.balance into v_balance from public.wallets w where w.team_id = v_slot.leader_team_id;
+    return jsonb_build_object(
+      'success', true,
+      'status', 'sold',
+      'slot_id', p_slot_id,
+      'winner_team_id', v_slot.winner_team_id,
+      'winning_bid', v_slot.current_bid,
+      'new_balance', v_balance
+    );
+  elsif v_slot.status = 'skipped' then
+    return jsonb_build_object(
+      'success', true,
+      'status', 'skipped',
+      'slot_id', p_slot_id
+    );
+  end if;
+
+  -- Slot is open, proceed with normal settlement via settle_slot
+  return public.settle_slot(p_slot_id);
+end;
+$$;
+
+revoke all on function public.close_slot(uuid) from public;
+grant execute on function public.close_slot(uuid) to authenticated, service_role;
+
+
+-- ─────────────────────────────────────────────────────────────
+-- 2.2. Strict captain place_bid()
 -- ─────────────────────────────────────────────────────────────
 create or replace function public.place_bid(
   p_slot_id uuid,

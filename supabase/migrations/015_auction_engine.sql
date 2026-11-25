@@ -154,7 +154,7 @@ begin
       v_slot.round;
   end if;
 
-  -- ── 10. Balance check (Rule Book §5.1 — a bid costs nothing) ─
+  -- ── 10. Balance check (Rule Book §5.1 — wallet is the remaining budget) ─
   select w.balance
   into   v_balance
   from   public.wallets w
@@ -830,14 +830,28 @@ security definer
 set search_path = ''
 as $$
 declare
-  v_session public.auction_sessions%rowtype;
-  v_open    public.slots%rowtype;
-  v_next    public.slots%rowtype;
-  v_result  jsonb;
+  v_session      public.auction_sessions%rowtype;
+  v_open         public.slots%rowtype;
+  v_next         public.slots%rowtype;
+  v_result       jsonb;
+  v_advancing    boolean;
 begin
   if not public.is_admin() then
     raise exception 'Admin access required to advance the auction';
   end if;
+
+  -- Concurrency guard: prevent duplicate advances from double-click,
+  -- multiple admin devices, realtime reconnect, or page refresh.
+  select coalesce(setting->>'value', 'false') into v_advancing
+  from public.settings
+  where key = 'auction_advancing';
+
+  if v_advancing = 'true' then
+    raise exception 'An auction advance is already in progress. Please wait for it to complete.';
+  end if;
+
+  -- Mark the advance as in progress.
+  update public.settings set value = 'true' where key = 'auction_advancing';
 
   select * into v_session from public.get_active_session() limit 1;
   if not found then
@@ -856,6 +870,12 @@ begin
     perform public.close_slot(v_open.id);
   end if;
 
+  -- Set the time when the next slot may be opened (3-second delay).
+  -- This prevents the next lot from being opened before the previous
+  -- lot is fully finalized, and protects against refreshes/reconnects
+  -- creating duplicate advances.
+  update public.settings set value = clock_timestamp() + make_interval(secs => 3) where key = 'next_auction_open_at';
+
   -- Pick the next pending item.
   select * into v_next
   from public.slots s
@@ -870,9 +890,14 @@ begin
   for update;
 
   if not found then
+    -- No more slots for this round; mark session completed.
     update public.auction_sessions
     set status = 'completed', ended_at = clock_timestamp(), updated_at = clock_timestamp()
     where id = v_session.id;
+
+    -- Clear the advance guard and transition timestamp.
+    update public.settings set value = 'false' where key = 'auction_advancing';
+    update public.settings set value = null where key = 'next_auction_open_at';
 
     return jsonb_build_object(
       'success',      true,
@@ -882,13 +907,113 @@ begin
     );
   end if;
 
+  -- Do NOT open the next slot immediately. Instead, record the transition
+  -- timestamp and return success. The caller should check
+  -- complete_next_auction_transition after the delay.
   perform public.select_auction_question(v_next.id);
-  v_result := public.open_bidding(v_next.id);
 
-  return v_result || jsonb_build_object(
-    'session_id', v_session.id,
+  return jsonb_build_object(
+    'success',      true,
+    'session_id',   v_session.id,
     'next_slot_id', v_next.id,
-    'session_status', 'bidding_open'
+    'session_status', 'advancing',
+    'message',      'Advance initiated. Next slot will open automatically after a 3-second delay.'
+  );
+end;
+$$;
+
+/**
+ * See advance_auction() for the transition flow.
+ * After advance_auction() sets next_auction_open_at (3-second delay),
+ * this function may be called to check whether the delay has elapsed
+ * and, if so, open the next pending slot and start its bidding timer.
+ */
+create or replace function public.complete_next_auction_transition()
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_now            timestamptz;
+  v_open_at        timestamptz;
+  v_should_transition boolean;
+  v_session        public.auction_sessions%rowtype;
+  v_next           public.slots%rowtype;
+  v_result         jsonb;
+begin
+  -- Check whether the delay has elapsed.
+  select coalesce(setting->>'value', null) into v_open_at
+  from public.settings
+  where key = 'next_auction_open_at';
+  v_now := clock_timestamp();
+  v_should_transition := v_open_at is not null and v_open_at::timestamptz <= v_now;
+
+  if not v_should_transition then
+    -- Delay has not yet elapsed; return current status.
+    return jsonb_build_object(
+      'success',      true,
+       'session_status', 'advancing',
+      'message',      'Delay still active — next slot will open shortly.'
+    );
+  end if;
+
+  -- Fetch the active session.
+  select * into v_session from public.get_active_session() limit 1;
+  if not found then
+    -- No session; nothing to transition.
+    update public.settings set value = null where key = 'next_auction_open_at';
+    update public.settings set value = 'false' where key = 'auction_advancing';
+    return jsonb_build_object(
+      'success', true,
+      'message', 'No active auction session.'
+    );
+  end if;
+
+  -- Find the next pending slot in the current round.
+  select * into v_next
+  from public.slots s
+  where s.status = 'pending'
+    and s.round = v_session.round
+    and not exists (
+      select 1 from public.slots k
+      where k.topic_id = s.topic_id and k.status = 'sold'
+    )
+  order by s.round, s.question_number nulls last, s.id
+  limit 1
+  for update;
+
+  if not found then
+    -- No more pending slots; mark session completed.
+    update public.auction_sessions
+    set status = 'completed', ended_at = clock_timestamp(), updated_at = clock_timestamp()
+    where id = v_session.id;
+
+    -- Clear the transition state.
+    update public.settings set value = null where key = 'next_auction_open_at';
+    update public.settings set value = 'false' where key = 'auction_advancing';
+
+    return jsonb_build_object(
+      'success',      true,
+      'session_id',   v_session.id,
+      'session_status','completed',
+      'message',      'No further auction items remain for this round.'
+    );
+  end if;
+
+  -- Open the next slot for bidding.
+  perform public.open_bidding(v_next.id);
+
+  -- Clear the transition state.
+  update public.settings set value = null where key = 'next_auction_open_at';
+  update public.settings set value = 'false' where key = 'auction_advancing';
+
+  return jsonb_build_object(
+    'success',      true,
+    'session_id',   v_session.id,
+    'next_slot_id', v_next.id,
+    'session_status', 'bidding_open',
+    'message',      'Next auction slot opened automatically after delay.'
   );
 end;
 $$;

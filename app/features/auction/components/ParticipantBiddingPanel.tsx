@@ -68,8 +68,8 @@ export function ParticipantBiddingPanel({
   });
 
   const minNextBid = validation.minNextBid;
+  const actionsDisabled = !validation.canBid || isSubmitting;
 
-  const [customValue, setCustomValue] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   /** Which preset is currently in flight (null = custom/empty). */
   const [pendingPreset, setPendingPreset] = useState<number | null>(null);
@@ -84,19 +84,6 @@ export function ParticipantBiddingPanel({
     const timer = setTimeout(() => setFeedback(null), SUCCESS_VISIBLE_MS);
     return () => clearTimeout(timer);
   }, [feedback]);
-
-  const parsedCustom = customValue.trim() === "" ? NaN : Number(customValue);
-  const customBid = Number.isFinite(parsedCustom) ? Math.floor(parsedCustom) : NaN;
-  const customHint =
-    customValue.trim() === ""
-      ? null
-      : !Number.isFinite(customBid) || customBid <= 0
-        ? "Enter a positive whole bid amount."
-        : customBid < minNextBid
-          ? `The minimum bid is ${minNextBid} points.`
-          : customBid > walletBalance
-            ? `Insufficient balance — your wallet has ${walletBalance} coins.`
-            : null;
 
   /**
    * One click / one submit. The amount goes straight to the existing
@@ -146,7 +133,6 @@ export function ParticipantBiddingPanel({
           tone: "success",
           text: `Bid of ${amount} points accepted.`,
         });
-        setCustomValue("");
       } else {
         setFeedback({
           tone: "error",
@@ -168,12 +154,6 @@ export function ParticipantBiddingPanel({
   const handlePresetClick = (increment: number) => {
     void submitBid(calculatePresetBid(minNextBid, increment), increment);
   };
-
-  const handleCustomSubmit = () => {
-    void submitBid(customBid, null);
-  };
-
-  const actionsDisabled = !validation.canBid || isSubmitting;
 
   return (
     <div className="w-full select-none">
@@ -237,49 +217,13 @@ export function ParticipantBiddingPanel({
         </div>
       </div>
 
-      {/* Custom total bid — immediately submitted via the small button */}
+      {/* Budget display: Total 100 - cumulative spent = remaining */}
+      <!-- Wallet balance is the remaining budget (starts at 100, deducted on wins) -->
       <div className="mt-3 flex items-stretch gap-2">
-        <input
-          type="number"
-          inputMode="numeric"
-          min={minNextBid}
-          step={1}
-          value={customValue}
-          onChange={(event) => {
-            setCustomValue(event.target.value);
-            if (feedback?.tone === "error") setFeedback(null);
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              handleCustomSubmit();
-            }
-          }}
-          disabled={actionsDisabled}
-          placeholder={`Custom total (min ${minNextBid})`}
-          aria-label="Custom bid amount"
-          className="min-w-0 flex-1 rounded-xl border border-zinc-700/70 bg-zinc-900/90 px-3.5 py-3 text-sm font-bold text-white placeholder:text-zinc-500 font-mono focus:outline-none focus:ring-2 focus:ring-[#fe5102]/60 disabled:opacity-50"
-        />
-        <button
-          type="button"
-          onClick={handleCustomSubmit}
-          disabled={actionsDisabled}
-          className="shrink-0 px-4 py-3 rounded-xl bg-[#fe5102] hover:bg-[#d94502] active:scale-[0.99] text-white font-black text-xs sm:text-sm tracking-wide shadow-lg shadow-orange-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500 disabled:shadow-none"
-        >
-          {isSubmitting && pendingPreset === null ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span>Placing...</span>
-            </>
-          ) : (
-            <span>Place Bid</span>
-          )}
-        </button>
+        <span className="text-sm text-zinc-500 font-bold uppercase tracking-wider min-w-[120px]">
+          Total: 100 pts | Spent: {100 - walletBalance} pts | Remaining: {walletBalance} pts
+        </span>
       </div>
-
-      {customHint && !feedback && (
-        <p className="mt-2 text-[11px] font-semibold text-amber-300">{customHint}</p>
-      )}
 
       {/* Concise success / error notification */}
       {feedback ? (

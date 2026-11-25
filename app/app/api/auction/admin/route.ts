@@ -166,6 +166,11 @@ export async function POST(request: Request) {
           p_note: body.reason ?? null,
         });
 
+      case "clear_team_dq":
+        return call("clear_team_dq", {
+          p_team_id: body.teamId,
+        });
+
       // ── Judging & bonus (Admin & Judge) ─────────────────────────
       case "approve_solution": {
         if (!body.submissionId) {

@@ -143,6 +143,16 @@ export function useAuction(options: { teamId?: string | null } = {}): UseAuction
     void resolveIdentity();
   }, [resolveIdentity]);
 
+  // When a team's resolved ID changes (e.g. late login during an active auction),
+  // immediately re-fetch the authoritative auction state so the team receives
+  // the correct current lot, highest bid, remaining budget, auction status, and
+  // eligible bidding status without needing a manual refresh.
+  useEffect(() => {
+    if (resolvedTeamId) {
+      void load(false);
+    }
+  }, [resolvedTeamId, load]);
+
   useEffect(() => {
     const { data: subscription } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_OUT") {

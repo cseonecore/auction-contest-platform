@@ -119,6 +119,13 @@ export function useAdminAuctionActions({
       advance: () =>
         run("advance", () => advanceAuction(), "Advanced to the next auction item."),
 
+      completeNextTransition: () =>
+        run(
+          "complete-next",
+          () => completeNextAuctionTransition(),
+          "Next auction slot opened after delay."
+        ),
+
       skip: (slotId: string) =>
         run("skip", () => skipSlot(slotId), "Item skipped."),
 
@@ -172,6 +179,9 @@ export function useAdminAuctionActions({
 
       restore: (teamId: string) =>
         run("restore", () => restoreTeam(teamId), "Team restored."),
+
+      clearDQ: (teamId: string) =>
+        run("clear-dq", () => clearTeamDQ(teamId), "Team disqualification cleared."),
 
       grantBonus: (submissionId: string, reason?: string) =>
         run(
