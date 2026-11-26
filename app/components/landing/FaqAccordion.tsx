@@ -11,12 +11,12 @@ const faqItems: FaqItem[] = [
   {
     question: "Who can participate?",
     answer:
-      "Currently enrolled college students. Teams must contain 2–4 members. No solo participation is allowed.",
+      "Currently enrolled college students. Teams must contain 2–3 members. No solo participation is allowed.",
   },
   {
     question: "How many members can a team have?",
     answer:
-      "Teams must contain 2–4 members. A minimum of 2 members is required; a team of 1 is not permitted.",
+      "Teams must contain 2–3 members. A minimum of 2 members is required; a team of 1 is not permitted.",
   },
   {
     question: "Can we use AI tools?",

@@ -58,7 +58,7 @@ revoke all on function public.clear_team_dq(uuid) from public;
 grant execute on function public.clear_team_dq(uuid) to authenticated, service_role;
 
 comment on function public.clear_team_dq(uuid) is
-  'Admin clears a team\'s disqualification status (dq_at), restoring their ability to submit. Idempotent.';
+  'Admin clears a team''s disqualification status (dq_at), restoring their ability to submit. Idempotent.';
 
 -- ─────────────────────────────────────────────────────────────
 -- 2. update restore_team to also handle DQ status
@@ -72,7 +72,7 @@ comment on function public.clear_team_dq(uuid) is
 -- The original restore_team only handled team_eliminations; we add dq_at clearing
 -- as a safety net for teams that may have been DQ'd independently.
 
-comment on public.restore_team(uuid, text) is
+comment on function public.restore_team(uuid, text) is
   'Restores a team from elimination AND clears any disqualification (dq_at) status.';
 
 -- ─────────────────────────────────────────────────────────────

@@ -554,7 +554,8 @@ export async function updateMaxTeamsCapacity(
 
 /**
  * Updates the lock status of a specific subset of teams (bulk action).
- * Uses the authenticated Supabase client respecting Admin RLS policy ("Admins manage teams").
+ * Uses the authenticated Supabase client, respecting the Admin RLS policy
+ * ("Admins update teams"). Locked teams are protected from deletion.
  */
 export async function updateSelectedTeamsLockStatus(
   teamIds: string[],
@@ -582,6 +583,16 @@ export async function updateSelectedTeamsLockStatus(
     }
 
     const updatedCount = Array.isArray(data) ? data.length : 0;
+
+    // PostgREST returns only rows the caller is allowed to update. A short
+    // count means RLS silently filtered some rows — surface it instead of
+    // pretending the unlock worked.
+    if (updatedCount !== teamIds.length) {
+      return {
+        success: false,
+        error: `Only ${updatedCount} of ${teamIds.length} selected team(s) were updated. Your admin session may not have permission to modify teams.`,
+      };
+    }
 
     return {
       success: true,
@@ -634,8 +645,9 @@ export async function fetchDeletedTeamsCount(): Promise<ServiceResult<number>> {
 }
 
 /**
- * Permanently deletes eligible locked teams through the transactional Supabase RPC function.
- * Enforces admin authorization, locked-status verification, and protected record validation.
+ * Permanently deletes every selected team in one transactional RPC call.
+ * Locked teams are refused (unlock first). Bids are deleted, slot leader/winner
+ * links are cleared, and members, wallets, submissions and solves cascade-delete.
  */
 export async function deleteTeams(
   teamIds: string[]

@@ -693,6 +693,226 @@ async function main() {
   })
 
   // ───────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────
+  // 11. Automatic slot progression (038)
+  // ─────────────────────────────────────────────────────────────
+  group('11. Automatic slot progression (backend 5-second advance)')
+
+  const openSlots = async () => {
+    const res = await db.query(
+      `select id, round, question_number from public.slots where status = 'open' order by id`
+    )
+    return res.rows
+  }
+
+  const progressionRow = async (round = 1) => {
+    const res = await db.query(
+      `select * from public.auction_slot_progressions where round = $1`,
+      [round]
+    )
+    return res.rows[0] ?? null
+  }
+
+  /** Runs the backend driver (it deliberately needs no admin JWT). */
+  const runDriver = async () => {
+    const res = await db.query(`select public.auto_advance_auction_if_scheduled() as r`)
+    return res.rows[0].r
+  }
+
+  const armNow = async () => {
+    await db.query(
+      `update public.auction_slot_progressions
+       set scheduled_transition_at = clock_timestamp() - interval '1 second'
+       where round = 1`
+    )
+  }
+
+  const liveSlotId = async () => {
+    const open = await openSlots()
+    assert(open.length === 1, `expected exactly one live slot, found ${open.length}`)
+    return open[0].id
+  }
+
+  let firstProgressionSlot = ''
+
+  await check('an active session exists for the progression sequence', async () => {
+    await asUser(db, JUDGE, 'admin')
+    const res = await db.query(`select public.start_auction(1) as r`)
+    assert(res.rows[0].r.success === true || res.rows[0].r.already_started === true,
+      `start_auction failed: ${JSON.stringify(res.rows[0].r)}`)
+    return `session ${res.rows[0].r.session_id ?? '(already active)'}`
+  })
+
+  await check('finalising a slot arms the 5-second automatic transition', async () => {
+    await asUser(db, JUDGE, 'admin')
+    firstProgressionSlot = await liveSlotId()
+    await db.query(`select public.close_slot($1)`, [firstProgressionSlot])
+
+    const row = await progressionRow(1)
+    assert(row, 'no progression row for round 1')
+    assert(row.auto_active === true, 'the progression sequence is not active')
+    assert(row.transition_pending === true, 'the transition was not armed')
+
+    const res = await db.query(
+      `select extract(epoch from (scheduled_transition_at - clock_timestamp()))::float as d
+       from public.auction_slot_progressions where round = 1`
+    )
+    const delta = Number(res.rows[0].d)
+    assert(delta > 4 && delta <= 6.5, `transition scheduled in ${delta}s instead of 5s`)
+
+    const ev = await db.query(
+      `select count(*)::int as n from public.auction_events
+       where event_type = 'slot_progression_scheduled'`
+    )
+    assert(ev.rows[0].n >= 1, 'slot_progression_scheduled was not emitted')
+    return `scheduled in ${delta.toFixed(1)}s`
+  })
+
+  await check('nothing opens before the scheduled time', async () => {
+    const r = await runDriver()
+    assert(r.advanced === false, 'the driver advanced before the due time')
+    assert(r.reason === 'no_pending_transition', `unexpected reason ${r.reason}`)
+    assert((await openSlots()).length === 0, 'a slot was opened before the due time')
+    return 'no early transition'
+  })
+
+  await check('the due transition opens the next slot of the same round', async () => {
+    const expected = await db.query(
+      `select s.id from public.slots s
+       where s.round = 1
+         and s.status = 'pending'
+         and not exists (
+           select 1 from public.slots k where k.topic_id = s.topic_id and k.status = 'sold'
+         )
+       order by s.round, s.question_number nulls last, s.id
+       limit 1`
+    )
+    assert(expected.rows.length === 1, 'no eligible next slot in round 1')
+
+    await armNow()
+    const r = await runDriver()
+    assert(r.advanced === true, `the driver did not advance: ${JSON.stringify(r)}`)
+    assert(r.round === 1, `advanced into round ${r.round}`)
+
+    const open = await openSlots()
+    assert(open.length === 1, `expected exactly one open slot, got ${open.length}`)
+    assert(open[0].id === expected.rows[0].id, 'the driver opened a slot out of order')
+    assert(open[0].round === 1, `the driver opened a slot of round ${open[0].round}`)
+
+    const settled = await db.query(`select status from public.slots where id = $1`, [
+      firstProgressionSlot,
+    ])
+    assert(settled.rows[0].status !== 'open', 'the settled slot was reopened')
+
+    const row = await progressionRow(1)
+    assert(row.transition_pending === false, 'the transition was not consumed')
+    return 'next round-1 slot opened'
+  })
+
+  await check('a duplicate driver run cannot open a second slot', async () => {
+    const r = await runDriver()
+    assert(r.advanced === false, `the driver advanced twice: ${JSON.stringify(r)}`)
+    assert((await openSlots()).length === 1, 'more than one slot is open after a duplicate run')
+    return 'exactly one transition executed'
+  })
+
+  await check('a manual open still works while a transition is pending', async () => {
+    await asUser(db, JUDGE, 'admin')
+    await db.query(`select public.close_slot($1)`, [await liveSlotId()]) // arms the transition
+
+    const other = await db.query(
+      `select id from public.slots where status = 'pending' order by id limit 1`
+    )
+    assert(other.rows.length === 1, 'no pending slot to open manually')
+    const res = await db.query(`select public.open_slot($1) as r`, [other.rows[0].id])
+    assert(res.rows[0].r.success === true, 'the manual open was blocked by the progression')
+    assert((await openSlots()).length === 1, 'more than one slot is open after the manual open')
+
+    // The scheduled transition must not steal the step while a slot is live.
+    await armNow()
+    const r = await runDriver()
+    assert(r.advanced === false, 'the driver opened a slot while another one was live')
+    assert(r.reason === 'slot_already_open', `unexpected reason ${r.reason}`)
+
+    // ...and settling the manually opened slot re-arms the sequence.
+    await db.query(`select public.close_slot($1)`, [other.rows[0].id])
+    const row = await progressionRow(1)
+    assert(row.transition_pending === true, 'the sequence was not re-armed after the manual slot settled')
+
+    await armNow()
+    const r2 = await runDriver()
+    assert(r2.advanced === true, `the sequence stalled after a manual open: ${JSON.stringify(r2)}`)
+    return 'manual open preserved, sequence continues afterwards'
+  })
+
+  await check('the progression stops at the end of the round and never crosses it', async () => {
+    await asUser(db, JUDGE, 'admin')
+    const live = await liveSlotId()
+
+    const beforeRound2 = (
+      await db.query(`select id, status from public.slots where round = 2 order by id`)
+    ).rows
+
+    // Finalise every other round-1 item without selling it, so round 1
+    // has no eligible slot left for the driver to open.
+    await db.query(
+      `update public.slots
+       set status = 'skipped', timer_status = 'completed', end_time = null, sold_at = clock_timestamp()
+       where round = 1 and status in ('pending', 'skipped')`
+    )
+    await db.query(`select public.close_slot($1)`, [live])
+    await armNow()
+
+    const r = await runDriver()
+    assert(r.advanced === false, 'the driver opened a slot past the round boundary')
+    assert(r.reason === 'round_complete', `unexpected reason ${r.reason}`)
+
+    const row = await progressionRow(1)
+    assert(row.round_complete === true, 'the progression was not marked complete')
+    assert(row.auto_active === false, 'the progression stayed active after the round ended')
+    assert((await openSlots()).length === 0, 'a slot is still open after the round completed')
+
+    const afterRound2 = (
+      await db.query(`select id, status from public.slots where round = 2 order by id`)
+    ).rows
+    assert(
+      JSON.stringify(beforeRound2) === JSON.stringify(afterRound2),
+      'the driver touched round 2'
+    )
+
+    const ev = await db.query(
+      `select count(*)::int as n from public.auction_events
+       where event_type = 'slot_progression_complete'`
+    )
+    assert(ev.rows[0].n >= 1, 'slot_progression_complete was not emitted')
+    return 'round 1 complete, round 2 untouched'
+  })
+
+  await check('a new manual open starts a fresh progression sequence', async () => {
+    await asUser(db, JUDGE, 'admin')
+    const target = await db.query(
+      `select id from public.slots where status = 'skipped' order by id limit 1`
+    )
+    assert(target.rows.length === 1, 'no recoverable slot to reopen')
+    const res = await db.query(`select public.open_slot($1) as r`, [target.rows[0].id])
+    assert(res.rows[0].r.success === true, 'reopening the slot failed')
+
+    const row = await progressionRow(1)
+    assert(row, 'the progression row disappeared')
+    assert(row.auto_active === true, 'the progression was not re-armed')
+    assert(row.round_complete === false, 'the round-complete flag was not cleared')
+    return 'sequence restarted by a manual open'
+  })
+
+  await check('a full reset cancels an in-flight progression', async () => {
+    const res = await db.query(`select public.reset_auction() as r`)
+    assert(res.rows[0].r.success === true, 'reset failed')
+    assert(res.rows[0].r.progressions_cleared >= 1, 'no progression row was reported as cleared')
+    const left = await db.query(`select count(*)::int as n from public.auction_slot_progressions`)
+    assert(left.rows[0].n === 0, `${left.rows[0].n} progression rows survived the reset`)
+    return 'progression rows cleared with the auction'
+  })
+
   await db.close()
 
   const failed = results.filter((r) => !r.ok)

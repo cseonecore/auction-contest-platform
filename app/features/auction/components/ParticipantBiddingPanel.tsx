@@ -68,12 +68,13 @@ export function ParticipantBiddingPanel({
   });
 
   const minNextBid = validation.minNextBid;
-  const actionsDisabled = !validation.canBid || isSubmitting;
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   /** Which preset is currently in flight (null = custom/empty). */
   const [pendingPreset, setPendingPreset] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
+
+  const actionsDisabled = !validation.canBid || isSubmitting;
 
   // A ref is the synchronous duplicate-submission guard: two clicks can
   // land before React re-renders the disabled button state.
@@ -218,7 +219,7 @@ export function ParticipantBiddingPanel({
       </div>
 
       {/* Budget display: Total 100 - cumulative spent = remaining */}
-      <!-- Wallet balance is the remaining budget (starts at 100, deducted on wins) -->
+      {/* Wallet balance is the remaining budget (starts at 100, deducted on wins) */}
       <div className="mt-3 flex items-stretch gap-2">
         <span className="text-sm text-zinc-500 font-bold uppercase tracking-wider min-w-[120px]">
           Total: 100 pts | Spent: {100 - walletBalance} pts | Remaining: {walletBalance} pts

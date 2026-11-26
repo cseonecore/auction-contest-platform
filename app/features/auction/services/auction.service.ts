@@ -10,6 +10,7 @@
 
 import { supabase } from "@/lib/supabase";
 import type {
+  AutoProgressionState,
   LiveAuctionState,
   TeamAuctionState,
   AuctionBid,
@@ -19,6 +20,30 @@ export interface ServiceResult<T> {
   success: boolean;
   data?: T;
   error?: string;
+}
+
+const INACTIVE_PROGRESSION: AutoProgressionState = {
+  active: false,
+  round: null,
+  transition_pending: false,
+  scheduled_transition_at: null,
+  round_complete: false,
+  message: null,
+};
+
+/** The progression snapshot is optional on the backend (older schemas). */
+function normalizeAutoProgression(
+  value: Partial<AutoProgressionState> | null | undefined
+): AutoProgressionState {
+  if (!value) return INACTIVE_PROGRESSION;
+  return {
+    active: value.active === true,
+    round: value.round ?? null,
+    transition_pending: value.transition_pending === true,
+    scheduled_transition_at: value.scheduled_transition_at ?? null,
+    round_complete: value.round_complete === true,
+    message: value.message ?? null,
+  };
 }
 
 function toMessage(error: { message?: string } | null): string {
@@ -67,6 +92,7 @@ export async function fetchLiveAuctionState(): Promise<ServiceResult<LiveAuction
         },
         events: state.events ?? [],
         eliminations: state.eliminations ?? [],
+        auto_progression: normalizeAutoProgression(state.auto_progression),
       },
     };
   } catch (err: unknown) {

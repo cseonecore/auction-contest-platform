@@ -9,7 +9,7 @@ import { isValidUsn, normalizeUsn, USN_FORMAT_HINT } from "@/lib/usn";
 
 export const FigmaRegistrationForm: React.FC = () => {
   const [teamName, setTeamName] = useState("");
-  const [teamSize, setTeamSize] = useState<2 | 3 | 4>(3);
+  const [teamSize, setTeamSize] = useState<2 | 3>(3);
 
   // Captain details (with Semester & Phone confirmation)
   const [captainName, setCaptainName] = useState("");
@@ -20,17 +20,10 @@ export const FigmaRegistrationForm: React.FC = () => {
   // Member 2
   const [m2Name, setM2Name] = useState("");
   const [m2Usn, setM2Usn] = useState("");
-  const [m2Phone, setM2Phone] = useState("");
 
   // Member 3
   const [m3Name, setM3Name] = useState("");
   const [m3Usn, setM3Usn] = useState("");
-  const [m3Phone, setM3Phone] = useState("");
-
-  // Member 4
-  const [m4Name, setM4Name] = useState("");
-  const [m4Usn, setM4Usn] = useState("");
-  const [m4Phone, setM4Phone] = useState("");
 
   // Form State
   const [loading, setLoading] = useState(false);
@@ -126,15 +119,8 @@ export const FigmaRegistrationForm: React.FC = () => {
       return;
     }
 
-    const cleanM2Phone = m2Phone.replace(/[\s-]/g, "");
-    if (!cleanM2Phone || cleanM2Phone.length < 10) {
-      setError("Please enter a valid 10-digit Phone Number for Member 2.");
-      return;
-    }
-
-    // 4. Member 3 validation (if team size >= 3)
-    let cleanM3Phone = "";
-    if (teamSize >= 3) {
+    // 4. Member 3 validation (only for 3-member teams)
+    if (teamSize === 3) {
       if (!m3Name.trim() || !m3Usn.trim()) {
         setError("Please fill in Member 3 Name and USN.");
         return;
@@ -143,35 +129,11 @@ export const FigmaRegistrationForm: React.FC = () => {
         setError(`Invalid Member 3 USN! Must follow pattern ${USN_FORMAT_HINT}.`);
         return;
       }
-      cleanM3Phone = m3Phone.replace(/[\s-]/g, "");
-      if (!cleanM3Phone || cleanM3Phone.length < 10) {
-        setError("Please enter a valid 10-digit Phone Number for Member 3.");
-        return;
-      }
     }
 
-    // 5. Member 4 validation (if team size == 4)
-    let cleanM4Phone = "";
-    if (teamSize >= 4) {
-      if (!m4Name.trim() || !m4Usn.trim()) {
-        setError("Please fill in Member 4 Name and USN.");
-        return;
-      }
-      if (!isValidUsn(m4Usn)) {
-        setError(`Invalid Member 4 USN! Must follow pattern ${USN_FORMAT_HINT}.`);
-        return;
-      }
-      cleanM4Phone = m4Phone.replace(/[\s-]/g, "");
-      if (!cleanM4Phone || cleanM4Phone.length < 10) {
-        setError("Please enter a valid 10-digit Phone Number for Member 4.");
-        return;
-      }
-    }
-
-    // 6. Check for duplicate USNs
+    // 5. Check for duplicate USNs
     const usnList = [normalizeUsn(captainUsn), normalizeUsn(m2Usn)];
-    if (teamSize >= 3) usnList.push(normalizeUsn(m3Usn));
-    if (teamSize >= 4) usnList.push(normalizeUsn(m4Usn));
+    if (teamSize === 3) usnList.push(normalizeUsn(m3Usn));
 
     const uniqueUsns = new Set(usnList);
     if (uniqueUsns.size !== usnList.length) {
@@ -182,14 +144,13 @@ export const FigmaRegistrationForm: React.FC = () => {
     setLoading(true);
 
     try {
-      const members: Array<{ name: string; usn: string; phone: string }> = [
-        { name: m2Name.trim(), usn: normalizeUsn(m2Usn), phone: cleanM2Phone },
+      // Only the captain's phone number is collected. Teammate phone numbers
+      // are intentionally omitted from the payload.
+      const members: Array<{ name: string; usn: string }> = [
+        { name: m2Name.trim(), usn: normalizeUsn(m2Usn) },
       ];
-      if (teamSize >= 3) {
-        members.push({ name: m3Name.trim(), usn: normalizeUsn(m3Usn), phone: cleanM3Phone });
-      }
-      if (teamSize >= 4) {
-        members.push({ name: m4Name.trim(), usn: normalizeUsn(m4Usn), phone: cleanM4Phone });
+      if (teamSize === 3) {
+        members.push({ name: m3Name.trim(), usn: normalizeUsn(m3Usn) });
       }
 
       const res = await fetch("/api/register", {
@@ -376,13 +337,13 @@ export const FigmaRegistrationForm: React.FC = () => {
               />
             </div>
 
-            {/* Team Size */}
+            {/* Team Size (2 or 3 members) */}
             <div className="flex items-center gap-2">
               <label className="text-xs font-semibold w-20 shrink-0">
                 Team Size
               </label>
               <div className="flex items-center gap-2">
-                {([2, 3, 4] as const).map((sz) => (
+                {([2, 3] as const).map((sz) => (
                   <button
                     key={sz}
                     type="button"
@@ -396,6 +357,9 @@ export const FigmaRegistrationForm: React.FC = () => {
                     {sz}
                   </button>
                 ))}
+                <span className="text-[10px] font-medium text-white/80">
+                  (2–3 members)
+                </span>
               </div>
             </div>
 
@@ -447,7 +411,7 @@ export const FigmaRegistrationForm: React.FC = () => {
                   <input
                     type="tel"
                     required
-                    placeholder="Phone Number"
+                    placeholder="Captain Phone Number"
                     value={captainPhone}
                     onChange={(e) => setCaptainPhone(e.target.value)}
                     className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
@@ -479,19 +443,11 @@ export const FigmaRegistrationForm: React.FC = () => {
                   onChange={(e) => setM2Usn(e.target.value.toUpperCase())}
                   className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
                 />
-                <input
-                  type="tel"
-                  required
-                  placeholder="Phone Number"
-                  value={m2Phone}
-                  onChange={(e) => setM2Phone(e.target.value)}
-                  className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
-                />
               </div>
             </div>
 
-            {/* Member 3 (visible when teamSize is 3 or 4) */}
-            {teamSize >= 3 && (
+            {/* Member 3 (visible when teamSize is 3) */}
+            {teamSize === 3 && (
               <div className="flex items-start gap-2 animate-in fade-in duration-150">
                 <label className="text-xs font-semibold w-20 shrink-0 pt-1.5">
                   Member 3
@@ -512,50 +468,6 @@ export const FigmaRegistrationForm: React.FC = () => {
                     value={m3Usn}
                     maxLength={10}
                     onChange={(e) => setM3Usn(e.target.value.toUpperCase())}
-                    className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
-                  />
-                  <input
-                    type="tel"
-                    required
-                    placeholder="Phone Number"
-                    value={m3Phone}
-                    onChange={(e) => setM3Phone(e.target.value)}
-                    className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Member 4 (visible when teamSize is 4) */}
-            {teamSize >= 4 && (
-              <div className="flex items-start gap-2 animate-in fade-in duration-150">
-                <label className="text-xs font-semibold w-20 shrink-0 pt-1.5">
-                  Member 4
-                </label>
-                <div className="w-full space-y-1.5">
-                  <input
-                    type="text"
-                    required
-                    placeholder="Name"
-                    value={m4Name}
-                    onChange={(e) => setM4Name(e.target.value)}
-                    className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400"
-                  />
-                  <input
-                    type="text"
-                    required
-                    placeholder="USN [ 4MT2XBBMMM / MT2XBBMMM ]"
-                    value={m4Usn}
-                    maxLength={10}
-                    onChange={(e) => setM4Usn(e.target.value.toUpperCase())}
-                    className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
-                  />
-                  <input
-                    type="tel"
-                    required
-                    placeholder="Phone Number"
-                    value={m4Phone}
-                    onChange={(e) => setM4Phone(e.target.value)}
                     className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
                   />
                 </div>
@@ -604,14 +516,9 @@ export const FigmaRegistrationForm: React.FC = () => {
               <span className="bg-[#fecaca] text-[#991b1b] font-semibold text-[11px] px-3 py-1 rounded-full shadow-2xs">
                 {m2Name.trim() || "Member 2 Name"}
               </span>
-              {teamSize >= 3 && (
+              {teamSize === 3 && (
                 <span className="bg-[#fbcfe8] text-[#9d174d] font-semibold text-[11px] px-3 py-1 rounded-full shadow-2xs">
                   {m3Name.trim() || "Member 3 Name"}
-                </span>
-              )}
-              {teamSize >= 4 && (
-                <span className="bg-[#e9d5ff] text-[#6b21a8] font-semibold text-[11px] px-3 py-1 rounded-full shadow-2xs">
-                  {m4Name.trim() || "Member 4 Name"}
                 </span>
               )}
             </div>

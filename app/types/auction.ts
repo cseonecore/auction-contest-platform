@@ -61,6 +61,10 @@ export interface ResetAuctionResult {
   bids_deleted: number
   wallets_reset: number
   starting_balance: number
+  /** Present from migration 036: submissions and attached results erased. */
+  submissions_deleted?: number
+  evaluations_deleted?: number
+  bonus_transactions_deleted?: number
 }
 
 /** Returned by create_auction_topic(). */

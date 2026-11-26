@@ -16,6 +16,7 @@ import {
   fetchRegistrationControlSettings,
   updateRegistrationOpenStatus,
   updateMaxTeamsCapacity,
+  updateSelectedTeamsLockStatus,
   fetchDeletedTeamsCount,
   deleteTeams,
 } from '@/features/admin/services/registrationService';
@@ -159,9 +160,81 @@ function AdminRegistrationContent() {
     setSelectedTeamIds([]);
   }, []);
 
+  // Lock or unlock teams and verify the change persisted.
+  const applySelectedLock = useCallback(
+    async (targetLocked: boolean, teamIds?: string[]) => {
+      const ids = teamIds ?? selectedTeamIds;
+      if (ids.length === 0 || isDeletingTeams) return;
+
+      setActionFeedback(null);
+      setIsDeletingTeams(true);
+
+      const result = await updateSelectedTeamsLockStatus(ids, targetLocked);
+
+      if (!result.success) {
+        setActionFeedback({
+          type: 'error',
+          message: result.error || `Failed to ${targetLocked ? 'lock' : 'unlock'} selected teams.`,
+        });
+        setIsDeletingTeams(false);
+        return;
+      }
+
+      // Re-read from the database so the table shows the persisted state.
+      const refreshed = await fetchRegisteredTeams();
+
+      if (!refreshed.success || !refreshed.data) {
+        await loadData();
+        setActionFeedback({
+          type: 'error',
+          message:
+            refreshed.error ||
+            `Teams were ${targetLocked ? 'locked' : 'unlocked'}, but reloading them failed. Refresh the page.`,
+        });
+        setIsDeletingTeams(false);
+        return;
+      }
+
+      setTeams(refreshed.data);
+
+      const idSet = new Set(ids);
+      const notPersisted = refreshed.data.filter(
+        (t) => idSet.has(t.id) && t.locked !== targetLocked
+      ).length;
+
+      if (notPersisted > 0) {
+        setActionFeedback({
+          type: 'error',
+          message: `${targetLocked ? 'Lock' : 'Unlock'} did not persist for ${notPersisted} team(s): the database is still re-locking them automatically. Run migration 034_manual_team_locks.sql in Supabase, then try again.`,
+        });
+      } else {
+        const count = result.data?.updatedCount ?? ids.length;
+        setActionFeedback({
+          type: 'success',
+          message: targetLocked
+            ? `Locked ${count} team(s). They are now protected from deletion.`
+            : `Unlocked ${count} team(s). They are now deletable.`,
+        });
+      }
+
+      setIsDeletingTeams(false);
+    },
+    [selectedTeamIds, isDeletingTeams, loadData]
+  );
+
+  const handleUnlockSelectedTeams = useCallback(
+    (teamIds?: string[]) => applySelectedLock(false, teamIds),
+    [applySelectedLock]
+  );
+
+  const handleLockSelectedTeams = useCallback(
+    (teamIds?: string[]) => applySelectedLock(true, teamIds),
+    [applySelectedLock]
+  );
+
   // Open Delete Confirmation Modal
-  // New locking rules: locked status is derived (Top 25 ⇒ Locked). Only
-  // unlocked teams outside the Top 25 are deletable.
+  // Locking rules: `locked` is an admin-controlled flag. Locked teams are
+  // protected from deletion; unlock them first to delete.
   const handleRequestOpenDeleteModal = useCallback(() => {
     if (selectedTeamIds.length === 0 || isAnyUpdating) return;
 
@@ -172,7 +245,7 @@ function AdminRegistrationContent() {
     if (lockedTeams.length > 0) {
       setActionFeedback({
         type: 'error',
-        message: `Cannot delete Top 25 teams. ${lockedTeams.length} selected team(s) are locked.`,
+        message: `Cannot delete locked teams. ${lockedTeams.length} selected team(s) are still locked — use "Unlock Selected Teams" first.`,
       });
       return;
     }
@@ -208,7 +281,7 @@ function AdminRegistrationContent() {
 
     setActionFeedback({
       type: 'success',
-      message: `Successfully deleted ${deletedCount} team(s). Audit records have been preserved in public.audit_log.`,
+      message: `Deleted ${deletedCount} team(s) in a single operation. Audit records have been preserved in public.audit_log.`,
     });
   }, [selectedTeamIds, isDeletingTeams, loadData]);
 
@@ -596,7 +669,7 @@ function AdminRegistrationContent() {
         </div>
       </div>
 
-      {/* Teams Table with Search, Filtering, Top 25 Status, and Phase 5 Bulk Selection */}
+      {/* Teams Table with Search, Filtering, Lock Status, and Phase 5 Bulk Selection */}
       <TeamsTable
         teams={teams}
         onSelectTeam={(team) => setSelectedTeam(team)}
@@ -611,6 +684,8 @@ function AdminRegistrationContent() {
         onSelectAll={handleSelectAll}
         onClearSelection={handleClearSelection}
         onRequestDelete={handleRequestOpenDeleteModal}
+        onUnlockSelectedTeams={handleUnlockSelectedTeams}
+        onLockSelectedTeams={handleLockSelectedTeams}
         onExport={handleExportTeamDetails}
         isExporting={isExporting}
       />

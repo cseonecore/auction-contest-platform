@@ -75,7 +75,7 @@ export function RegistrationStats({ stats }: RegistrationStatsProps) {
           </div>
         </div>
         <p className="mt-4 text-[11px] text-zinc-500 dark:text-zinc-400">
-          Avg. {stats.totalTeams > 0 ? (stats.totalParticipants / stats.totalTeams).toFixed(1) : 0} / team
+          Avg. {stats.totalTeams > 0 ? (stats.totalParticipants / stats.totalTeams).toFixed(1) : 0} / team · Max 3
         </p>
       </div>
 

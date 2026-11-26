@@ -97,20 +97,16 @@ export function resolveCaptainMobileNumber(
  * 5. Captain Mobile Number
  * 6. Member Name
  * 7. Member USN
- * 8. Member Mobile Number
- * 9. Member 1 Name
- * 10. Member 1 USN
- * 11. Member 1 Mobile Number
- * 12. Member 2 Name
- * 13. Member 2 USN
- * 14. Member 2 Mobile Number
- * ... dynamically adds Member Name / USN / Mobile Number triplets based on max non-captain members across all teams.
+ * 8. Member 1 Name
+ * 9. Member 1 USN
+ * ... dynamically adds Member Name / USN pairs based on max non-captain members across all teams.
  *
  * Rules:
  * - Exactly one row per team.
  * - Captain is resolved using the team's actual captain_id relationship.
  * - Captain is excluded from the member column pairs (never duplicated).
- * - Missing values (including unavailable mobile numbers) are left blank.
+ * - Only the captain's mobile number is exported; teammate phone numbers are not collected.
+ * - Missing values are left blank.
  * - USNs and mobile numbers are stored and formatted strictly as text ('@').
  * - Preserves bold headers, frozen row, auto-filter, and clean borders.
  */
@@ -206,7 +202,7 @@ export async function exportTeamDetailsToExcel(
       };
     });
 
-    // Ensure at least 1 member set exists (Member Name / Member USN / Member Mobile Number)
+    // Ensure at least 1 member set exists (Member Name / Member USN)
     const effectiveMemberPairs = Math.max(maxNonCaptainCount, 1);
 
     const workbook = new ExcelJS.Workbook();
@@ -227,10 +223,8 @@ export async function exportTeamDetailsToExcel(
     // 5. Captain Mobile Number
     // 6. Member Name
     // 7. Member USN
-    // 8. Member Mobile Number
-    // 9. Member 1 Name
-    // 10. Member 1 USN
-    // 11. Member 1 Mobile Number
+    // 8. Member 1 Name
+    // 9. Member 1 USN
     // ...
     const columns: Array<{ header: string; key: string; width: number }> = [
       { header: 'S.No.', key: 'sno', width: 8 },
@@ -245,14 +239,9 @@ export async function exportTeamDetailsToExcel(
         effectiveMemberPairs === 1 ? 'Member Name' : `Member ${i + 1} Name`;
       const usnHeader =
         effectiveMemberPairs === 1 ? 'Member USN' : `Member ${i + 1} USN`;
-      const mobileHeader =
-        effectiveMemberPairs === 1
-          ? 'Member Mobile Number'
-          : `Member ${i + 1} Mobile Number`;
 
       columns.push({ header: nameHeader, key: `member_${i}_name`, width: 24 });
       columns.push({ header: usnHeader, key: `member_${i}_usn`, width: 18 });
-      columns.push({ header: mobileHeader, key: `member_${i}_mobile`, width: 22 });
     }
 
     worksheet.columns = columns;
@@ -304,21 +293,15 @@ export async function exportTeamDetailsToExcel(
         const member = item.nonCaptainMembers[i];
         const nameKey = `member_${i}_name`;
         const usnKey = `member_${i}_usn`;
-        const mobileKey = `member_${i}_mobile`;
 
         const memberName = member?.name ? member.name.trim() : '';
         const memberUsn =
           member?.parsedUsn && member.parsedUsn !== 'N/A'
             ? member.parsedUsn.trim().toUpperCase()
             : '';
-        const memberMobile =
-          member?.phone && typeof member.phone === 'string'
-            ? member.phone.trim()
-            : '';
 
         rowData[nameKey] = memberName;
         rowData[usnKey] = memberUsn;
-        rowData[mobileKey] = memberMobile;
       }
 
       const row = worksheet.addRow(rowData);
@@ -353,27 +336,18 @@ export async function exportTeamDetailsToExcel(
       capMobileCell.numFmt = '@';
       capMobileCell.value = String(item.captainMobile || '');
 
-      // Format all Member USN and Mobile Number cells strictly as text
+      // Format all Member USN cells strictly as text
       for (let i = 0; i < effectiveMemberPairs; i++) {
-        const usnColNumber = 5 + i * 3 + 2; // Col 7, 10, 13...
-        const mobileColNumber = 5 + i * 3 + 3; // Col 8, 11, 14...
+        const usnColNumber = 5 + i * 2 + 2; // Col 7, 9, 11...
         const member = item.nonCaptainMembers[i];
         const memUsn =
           member?.parsedUsn && member.parsedUsn !== 'N/A'
             ? member.parsedUsn.trim().toUpperCase()
             : '';
-        const memMobile =
-          member?.phone && typeof member.phone === 'string'
-            ? member.phone.trim()
-            : '';
 
         const memberUsnCell = row.getCell(usnColNumber);
         memberUsnCell.numFmt = '@';
         memberUsnCell.value = String(memUsn);
-
-        const memberMobileCell = row.getCell(mobileColNumber);
-        memberMobileCell.numFmt = '@';
-        memberMobileCell.value = String(memMobile);
       }
     }
 

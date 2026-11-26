@@ -14,7 +14,7 @@
  * layer. No placeholder handlers, no mock data.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuction } from "../hooks/useAuction";
 import { useAuctionTimer } from "../hooks/useAuctionTimer";
 import { useAdminAuction } from "@/features/admin/hooks/useAdminAuction";
@@ -550,6 +550,62 @@ export function AdminAuctionRoom() {
     onExpire: () => void refreshLive(),
   });
 
+  // ── Automatic slot progression (backend-scheduled, display only) ──
+  // The database opens the next slot 5 seconds after the previous one
+  // was finalized. Everything below only RENDERS that schedule: the
+  // countdown is derived from `scheduled_transition_at` vs the backend
+  // `server_time`, and the only action taken is re-reading the
+  // authoritative state once the scheduled time is due — the read is
+  // what lets the backend run the transition. No frontend timer ever
+  // decides that a slot opens.
+  const progression = state.auto_progression ?? null;
+  const pendingTransition =
+    progression?.transition_pending === true && !!progression.scheduled_transition_at;
+
+  const [progressionTick, setProgressionTick] = useState(() => Date.now());
+  const [stateReadAt, setStateReadAt] = useState(() => Date.now());
+
+  // Local wall-clock time of the latest authoritative read, so the
+  // countdown can be projected forward on the backend clock.
+  useEffect(() => {
+    setStateReadAt(Date.now());
+  }, [state.server_time]);
+
+  // Display-only tick while a transition is scheduled.
+  useEffect(() => {
+    if (!pendingTransition) return;
+    const id = window.setInterval(() => setProgressionTick(Date.now()), 250);
+    return () => window.clearInterval(id);
+  }, [pendingTransition]);
+
+  const progressionScheduledMs = progression?.scheduled_transition_at
+    ? Date.parse(progression.scheduled_transition_at)
+    : Number.NaN;
+  const serverNowMs = state.server_time ? Date.parse(state.server_time) : Number.NaN;
+  const progressionMsLeft =
+    pendingTransition &&
+    !Number.isNaN(progressionScheduledMs) &&
+    !Number.isNaN(serverNowMs)
+      ? // Estimate "now" on the backend clock from the last read.
+        progressionScheduledMs -
+        (serverNowMs + Math.max(0, progressionTick - stateReadAt))
+      : null;
+
+  const progressionSecondsLeft =
+    progressionMsLeft === null ? null : Math.max(0, Math.ceil(progressionMsLeft / 1000));
+
+  // Once the backend-scheduled time is due, re-read the authoritative
+  // state. That read runs the backend transition (exactly once, guarded
+  // there) and picks up the newly opened slot.
+  const progressionDueRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (progressionMsLeft === null || progressionMsLeft > 0) return;
+    const key = progression?.scheduled_transition_at ?? null;
+    if (!key || progressionDueRef.current === key) return;
+    progressionDueRef.current = key;
+    void refreshLive();
+  }, [progressionMsLeft, progression?.scheduled_transition_at, refreshLive]);
+
   // ── Feedback (combined + auto-dismiss successes) ────────────
   const feedback = actions.feedback ?? actionFeedback;
 
@@ -607,6 +663,9 @@ export function AdminAuctionRoom() {
   }, [transitionTimeoutRef]);
 
   // ── Derived: display number ────────────────────────────────
+  const viewedNumber = viewedSlot
+    ? orderedPosition(viewedSlot.id) ?? viewedSlot.question_number ?? 1
+    : 0;
   const displayNumber = liveItem
     ? orderedPosition(liveItem.id) ?? liveItem.question_number ?? 1
     : viewedNumber;
@@ -652,7 +711,7 @@ export function AdminAuctionRoom() {
   const requestReset = useCallback(() => {
     setConfirm({
       title: "Reset auction?",
-      body: "The secure backend provides a full auction reset only — every slot returns to Pending, all bids are cleared and every wallet is restored to its starting balance. A single-slot reset is not exposed by the backend, so this action cannot be limited to the selected slot.",
+      body: "This is a full auction reset. Every slot returns to Pending, all bids are cleared, every wallet is restored to its starting balance, and all submissions — with their scores, evaluations and bonus time — are erased from the Bidding Results and Submission pages. This cannot be undone.",
       confirmLabel: "Full reset",
       tone: "danger",
       run: async () => {
@@ -1464,6 +1523,53 @@ export function AdminAuctionRoom() {
           </div>
         )}
       </section>
+
+      {/* Automatic slot progression — backend-scheduled, rendered read-only */}
+      {!pendingTransition && progression?.message ? (
+        <div
+          role="status"
+          className={`rounded-xl border px-4 py-3 text-xs ${
+            progression.round_complete
+              ? "border-emerald-500/30 bg-emerald-950/30 text-emerald-200"
+              : "border-amber-500/40 bg-amber-950/30 text-amber-200"
+          }`}
+        >
+          <p className="font-bold">{progression.message}</p>
+          <p className="mt-1 opacity-70">
+            {progression.round_complete
+              ? "Open a slot manually to start a new sequence."
+              : "Open a slot manually to restart the sequence."}
+          </p>
+        </div>
+      ) : pendingTransition ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex flex-wrap items-center gap-3 rounded-xl border border-[#fe5102]/40 bg-[#fe5102]/10 px-4 py-3 text-xs"
+        >
+          <span
+            aria-hidden
+            className="h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-orange-300/30 border-t-orange-200"
+          />
+          <span className="font-bold text-white">
+            Round {progression?.round ?? currentRound}: next slot opens in{" "}
+            <span className="font-mono text-sm text-[#fe5102]">
+              {progressionSecondsLeft ?? 0}s
+            </span>
+          </span>
+          <span className="text-orange-200/80">
+            Automatic progression runs on the server — it continues even if this page is closed.
+          </span>
+        </div>
+      ) : progression?.active && progression.round ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-xs text-zinc-300">
+          <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-emerald-400" />
+          <span>
+            Automatic progression active for Round {progression.round} — the next slot opens
+            5 seconds after each result.
+          </span>
+        </div>
+      ) : null}
 
       {/* 2 ─ Main auction container */}
       <div className="rounded-2xl border border-white/10 bg-[#17181c] p-5 sm:p-6">

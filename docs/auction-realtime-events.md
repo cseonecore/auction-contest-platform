@@ -60,10 +60,26 @@ asserts this by scanning every event payload for private markers.
 | `team_restored` | `team_eliminations` trigger | `team_id, team_name` |
 | `auction_completed` | `end_auction_session()` (via the audit log) | — (the session row is the source of truth) |
 | `points_changed` | `wallet_transactions` trigger | `team_id, team_name, tx_type, amount, balance_after` |
+| `slot_progression_scheduled` | `settle_slot()` → `schedule_slot_progression()` | `round, completed_slot_id, scheduled_transition_at` |
+| `slot_progression_complete` | `auto_advance_auction_if_scheduled()` | `round, message` |
 
 The `timer_ends_at` and `timer_status` columns on every event carry the
 authoritative deadline at the moment of the event, so a client can update its
 clock immediately and reconcile fully on the next state read.
+
+### Automatic slot progression
+
+Once the admin has opened the first slot of a round, the backend advances the
+round on its own: each finalisation (SOLD or UNSOLD) arms a 5-second transition
+and emits `slot_progression_scheduled`, whose payload carries the backend
+timestamp the next slot is opened at. `slot_progression_complete` announces
+that the round has no eligible slot left — progression stops there and never
+crosses into another round.
+
+Clients only *render* this schedule. The countdown in the admin room is derived
+from `scheduled_transition_at` and the `server_time` of the last state read, and
+when it reaches zero the client simply re-reads `get_live_auction_state()` —
+that read (or the pg_cron tick) is what executes the transition, exactly once.
 
 ---
 

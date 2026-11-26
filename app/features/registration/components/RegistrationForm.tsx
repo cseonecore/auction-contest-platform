@@ -26,7 +26,6 @@ const INITIAL_FORM_STATE: RegistrationFormData = {
   teammates: [
     { id: 2, name: "", usn: "" },
     { id: 3, name: "", usn: "" },
-    { id: 4, name: "", usn: "" },
   ],
 };
 
@@ -38,7 +37,7 @@ export const RegistrationForm: React.FC = () => {
   const [successData, setSuccessData] =
     useState<RegistrationSuccessData | null>(null);
 
-  // Active teammates based on selected team size (2 or 4)
+  // Active teammates based on selected team size (2 or 3)
   const activeTeammates: Teammate[] =
     formData.teamSize === 2
       ? formData.teammates.filter((t) => t.id === 2)

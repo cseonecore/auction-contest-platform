@@ -7,12 +7,12 @@
  * Destructive operation confirmation modal:
  *  - Displays list of selected teams (Name, Team ID, Member count).
  *  - Explicitly warns of permanent cascading removal of rosters and wallets.
- *  - Clarifies that teams with auction bids, slot wins, or submissions are protected.
- *  - Enforces typing confirmation: requires typing "DELETE" in capital letters.
+ *  - Warns that auction bids are deleted and slot leader/winner links are cleared.
+ *  - Deletes every selected team together in one operation, with a single confirm button.
  *  - Displays transactional database error feedback if rejected.
  */
 
-import React, { useState } from 'react';
+import React from 'react';
 import { RegisteredTeamWithRelations } from '../../types/registration';
 
 interface TeamDeleteModalProps {
@@ -32,20 +32,8 @@ export function TeamDeleteModal({
   selectedTeams,
   errorMessage,
 }: TeamDeleteModalProps) {
-  const [confirmText, setConfirmText] = useState('');
-  const [prevIsOpen, setPrevIsOpen] = useState(false);
-
-  // Reset confirmation input when opening/closing
-  if (isOpen !== prevIsOpen) {
-    setPrevIsOpen(isOpen);
-    if (isOpen) {
-      setConfirmText('');
-    }
-  }
-
   if (!isOpen) return null;
 
-  const isConfirmed = confirmText.trim() === 'DELETE';
   const totalMembersAffected = selectedTeams.reduce(
     (acc, t) => acc + (t.members?.length || 0),
     0
@@ -119,10 +107,10 @@ export function TeamDeleteModal({
           </p>
           <ul className="list-disc list-inside space-y-1 text-[11px] text-rose-800 dark:text-rose-300">
             <li>
-              Selected team rosters (<strong className="font-semibold">{totalMembersAffected} participant records</strong>) and point wallets will be permanently deleted.
+              All <strong className="font-semibold">{selectedTeams.length}</strong> selected {selectedTeams.length === 1 ? 'team' : 'teams'} ({totalMembersAffected} participant records) and their point wallets will be deleted together in one operation.
             </li>
             <li>
-              Teams with <strong className="font-semibold">auction bids</strong>, <strong className="font-semibold">won slots</strong>, <strong className="font-semibold">project submissions</strong>, or <strong className="font-semibold">challenge solves</strong> are protected and will be rejected by the database.
+              <strong className="font-semibold">Auction bids</strong> placed by these teams are deleted, and <strong className="font-semibold">slot leader/winner links</strong> are cleared. <strong className="font-semibold">Submissions</strong> and <strong className="font-semibold">challenge solves</strong> belonging to these teams are also deleted.
             </li>
             <li>
               An unalterable audit log entry (<code className="font-mono text-[10px]">team_deleted</code>) will be recorded for each deleted team before removal.
@@ -145,8 +133,14 @@ export function TeamDeleteModal({
                     <span className="font-bold text-zinc-900 dark:text-zinc-100 truncate">
                       {team.name}
                     </span>
-                    <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
-                      Locked
+                    <span
+                      className={`shrink-0 text-[10px] font-semibold px-1.5 py-0.2 rounded ${
+                        team.locked
+                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                          : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                      }`}
+                    >
+                      {team.locked ? 'Locked' : 'Unlocked'}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 text-[10px] text-zinc-400 font-mono mt-0.5">
@@ -169,28 +163,11 @@ export function TeamDeleteModal({
           </div>
         </div>
 
-        {/* Typing Confirmation Requirement */}
-        <div className="space-y-2 shrink-0 pt-2 border-t border-zinc-100 dark:border-zinc-800">
-          <label
-            htmlFor="deleteConfirmInput"
-            className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 block"
-          >
-            To proceed, type{' '}
-            <span className="font-mono font-bold text-rose-600 dark:text-rose-400">
-              DELETE
-            </span>{' '}
-            in capital letters below:
-          </label>
-          <input
-            id="deleteConfirmInput"
-            type="text"
-            value={confirmText}
-            onChange={(e) => setConfirmText(e.target.value)}
-            disabled={isDeleting}
-            placeholder="Type DELETE to confirm..."
-            autoComplete="off"
-            className="w-full px-3.5 py-2 text-xs font-mono font-bold rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-rose-500 disabled:opacity-50"
-          />
+        {/* Confirmation prompt */}
+        <div className="shrink-0 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+          <p className="text-xs text-zinc-600 dark:text-zinc-400">
+            Click <strong className="font-semibold text-rose-600 dark:text-rose-400">Delete All {selectedTeams.length} {selectedTeams.length === 1 ? 'Team' : 'Teams'}</strong> to remove the entire selection from the database at once — no further confirmation is required.
+          </p>
         </div>
 
         {/* Action Buttons */}
@@ -206,7 +183,7 @@ export function TeamDeleteModal({
 
           <button
             type="button"
-            disabled={!isConfirmed || isDeleting}
+            disabled={isDeleting}
             onClick={onConfirm}
             className="px-4 py-2 text-xs font-bold rounded-lg bg-rose-600 text-white hover:bg-rose-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 shadow-xs"
           >
@@ -225,7 +202,7 @@ export function TeamDeleteModal({
                     d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
                   />
                 </svg>
-                <span>Permanently Delete Teams</span>
+                <span>Delete All {selectedTeams.length} {selectedTeams.length === 1 ? 'Team' : 'Teams'}</span>
               </>
             )}
           </button>

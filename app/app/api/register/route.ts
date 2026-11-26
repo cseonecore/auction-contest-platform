@@ -6,6 +6,8 @@ import { isValidUsn, normalizeUsn, USN_FORMAT_HINT } from "@/lib/usn";
 
 const DEFAULT_MAX_TEAMS = 60;
 const DEFAULT_REGISTRATION_OPEN = true;
+const MIN_TEAM_MEMBERS = 2;
+const MAX_TEAM_MEMBERS = 3;
 
 interface RegisterRequestBody {
   teamName: string;
@@ -485,6 +487,14 @@ export async function POST(request: Request) {
       );
     }
 
+    const captainPhoneDigits = captain.phone.replace(/\D/g, "");
+    if (captainPhoneDigits.length < 10) {
+      return NextResponse.json(
+        { error: "Please enter a valid Captain Phone Number (at least 10 digits)." },
+        { status: 400 }
+      );
+    }
+
     if (!isValidUsn(captain.usn)) {
       return NextResponse.json(
         {
@@ -492,6 +502,54 @@ export async function POST(request: Request) {
         },
         { status: 400 }
       );
+    }
+
+    // Only team members with both a name and a USN count toward team size.
+    const validMembers = (Array.isArray(members) ? members : []).filter(
+      (tm) => tm.name?.trim() && tm.usn?.trim()
+    );
+    const totalMembers = 1 + validMembers.length;
+
+    if (totalMembers < MIN_TEAM_MEMBERS) {
+      return NextResponse.json(
+        {
+          error: `A team must have at least ${MIN_TEAM_MEMBERS} members (the Captain plus at least one teammate).`,
+        },
+        { status: 400 }
+      );
+    }
+
+    if (totalMembers > MAX_TEAM_MEMBERS) {
+      return NextResponse.json(
+        {
+          error: `A team can have at most ${MAX_TEAM_MEMBERS} members (the Captain plus up to two teammates).`,
+        },
+        { status: 400 }
+      );
+    }
+
+    if (body.teamSize !== undefined && body.teamSize !== null) {
+      const declaredSize = Number(body.teamSize);
+      if (
+        !Number.isInteger(declaredSize) ||
+        declaredSize < MIN_TEAM_MEMBERS ||
+        declaredSize > MAX_TEAM_MEMBERS
+      ) {
+        return NextResponse.json(
+          {
+            error: `Team size must be between ${MIN_TEAM_MEMBERS} and ${MAX_TEAM_MEMBERS} members.`,
+          },
+          { status: 400 }
+        );
+      }
+      if (declaredSize !== totalMembers) {
+        return NextResponse.json(
+          {
+            error: `Team size (${declaredSize}) does not match the ${totalMembers} member(s) provided.`,
+          },
+          { status: 400 }
+        );
+      }
     }
 
     if (Array.isArray(members)) {
@@ -525,15 +583,13 @@ export async function POST(request: Request) {
     ];
 
     if (Array.isArray(members)) {
-      members.forEach((tm, idx) => {
-        if (tm.name?.trim() && tm.usn?.trim()) {
-          const u = normalizeUsn(tm.usn);
-          allUsnEntries.push({
-            usn: u,
-            email: `${u.toLowerCase()}@mite.ac.in`,
-            role: `Member ${idx + 2} (${tm.name.trim()})`,
-          });
-        }
+      validMembers.forEach((tm, idx) => {
+        const u = normalizeUsn(tm.usn);
+        allUsnEntries.push({
+          usn: u,
+          email: `${u.toLowerCase()}@mite.ac.in`,
+          role: `Member ${idx + 2} (${tm.name.trim()})`,
+        });
       });
     }
 
@@ -789,53 +845,49 @@ export async function POST(request: Request) {
 
     // 11. Insert Teammates into `members` table
     // Teammates do not have Auth logins; each receives a valid RFC 4122 v4 UUID.
-    if (Array.isArray(members)) {
-      for (const tm of members) {
-        if (tm.name?.trim() && tm.usn?.trim()) {
-          const tmUsn = normalizeUsn(tm.usn);
-          const tmEmail = `${tmUsn.toLowerCase()}@mite.ac.in`;
-          const tmPhone = tm.phone?.trim() || null;
-          const teammateMemberId = randomUUID();
+    // Only the captain's phone number is collected, so teammate phone is always NULL.
+    for (const tm of validMembers) {
+      const tmUsn = normalizeUsn(tm.usn);
+      const tmEmail = `${tmUsn.toLowerCase()}@mite.ac.in`;
+      const teammateMemberId = randomUUID();
 
-          const memberPayload = {
-            id: teammateMemberId,
-            team_id: teamId,
-            name: tm.name.trim(),
-            email: tmEmail,
-            college: "MITE",
-            phone: tmPhone,
-          };
+      const memberPayload = {
+        id: teammateMemberId,
+        team_id: teamId,
+        name: tm.name.trim(),
+        email: tmEmail,
+        college: "MITE",
+        phone: null,
+      };
 
-          const memRes = await db.from("members").insert(memberPayload);
+      const memRes = await db.from("members").insert(memberPayload);
 
-          if (memRes.error) {
-            console.error("[Register API] Error inserting teammate:", memRes.error);
-            await rollbackRegistration({
-              db,
-              teamId,
-              authUserId: captainAuthId,
-              isNewAuthUser,
-              reason: `Teammate insert failure (${tmUsn}): ${memRes.error.message}`,
-            });
-            createdTeamId = null;
-            createdAuthUserId = null;
+      if (memRes.error) {
+        console.error("[Register API] Error inserting teammate:", memRes.error);
+        await rollbackRegistration({
+          db,
+          teamId,
+          authUserId: captainAuthId,
+          isNewAuthUser,
+          reason: `Teammate insert failure (${tmUsn}): ${memRes.error.message}`,
+        });
+        createdTeamId = null;
+        createdAuthUserId = null;
 
-            if (memRes.error.code === "23505" || memRes.error.message?.includes("unique")) {
-              return NextResponse.json(
-                { error: `Member USN "${tmUsn}" is already registered. Each participant can only register once.` },
-                { status: 409 }
-              );
-            }
-
-            return NextResponse.json(
-              { error: `Database insert failed for member: ${memRes.error.message}.` },
-              { status: 500 }
-            );
-          }
-
-          console.log(`[Register API] Inserted teammate: ${tm.name} (${teammateMemberId})`);
+        if (memRes.error.code === "23505" || memRes.error.message?.includes("unique")) {
+          return NextResponse.json(
+            { error: `Member USN "${tmUsn}" is already registered. Each participant can only register once.` },
+            { status: 409 }
+          );
         }
+
+        return NextResponse.json(
+          { error: `Database insert failed for member: ${memRes.error.message}.` },
+          { status: 500 }
+        );
       }
+
+      console.log(`[Register API] Inserted teammate: ${tm.name} (${teammateMemberId})`);
     }
 
     // 12. Initialize Wallet with 100 points (fail closed if wallet initialization fails)

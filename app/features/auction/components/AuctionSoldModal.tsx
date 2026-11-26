@@ -24,7 +24,7 @@ interface AuctionSoldModalProps {
 export function AuctionSoldModal({
   result,
   onClose,
-  autoDismissMs = 8000,
+  autoDismissMs = 2000,
 }: AuctionSoldModalProps) {
   const [progress, setProgress] = useState(100);
 

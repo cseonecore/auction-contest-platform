@@ -403,8 +403,24 @@ async function main() {
     return 'B 100 − 60 = 40, A untouched'
   })
 
-  await check('reset restores wallets and emits auction_reset', async () => {
+  await check('reset restores wallets and erases submissions, emits auction_reset', async () => {
     await asUser(db, ADMIN, 'admin')
+
+    // Seed one allocation: a submission, its evaluation and a bonus award.
+    const seeded = await db.query(`
+      insert into public.submissions (team_id, slot_id, status)
+      select t.id, s.id, 'submitted'
+      from public.teams t, public.slots s
+      where t.id = '${TEAM_B}'::uuid and s.id = (select id from public.slots limit 1)
+      returning id`)
+    assert(seeded.rows.length === 1, 'could not seed a submission')
+    const subId = seeded.rows[0].id
+    await db.query(`insert into public.evaluations (submission_id, score, report) values ($1, 3.5, '{}')`, [subId])
+    await db.query(`
+      insert into public.bonus_transactions (team_id, slot_id, topic_id, submission_id, approved_by, bonus_seconds, reason)
+      values ('${TEAM_B}'::uuid, (select id from public.slots limit 1), (select id from public.topics limit 1),
+              $1, '${CAPTAIN_B}'::uuid, 15, 'bonus award test')`, [subId])
+
     const res = await db.query(`select public.reset_auction() as r`)
     assert(res.rows[0].r.success === true, 'reset failed')
     assert((await walletOf(db, TEAM_A)) === 100, 'wallet was not restored')
@@ -412,7 +428,18 @@ async function main() {
     const bids = await db.query(`select count(*)::int as n from public.bids`)
     assert(bids.rows[0].n === 0, 'bids were not cleared')
     assert((await eventCount(db, 'auction_reset')) === 1, 'auction_reset not emitted')
-    return 'wallets restored, auction_reset emitted'
+
+    const submissions = await db.query(`select count(*)::int as n from public.submissions`)
+    assert(submissions.rows[0].n === 0, 'submissions survived the reset')
+    const evaluations = await db.query(`select count(*)::int as n from public.evaluations`)
+    assert(evaluations.rows[0].n === 0, 'evaluations survived the reset')
+    const bonuses = await db.query(`select count(*)::int as n from public.bonus_transactions`)
+    assert(bonuses.rows[0].n === 0, 'bonus transactions survived the reset')
+    assert(
+      (res.rows[0].r.submissions_deleted ?? 0) >= 1,
+      'reset_auction() does not report submissions_deleted'
+    )
+    return 'wallets restored, submissions/evaluations/bonuses erased, auction_reset emitted'
   })
 
   // ───────────────────────────────────────────────────────────────────────

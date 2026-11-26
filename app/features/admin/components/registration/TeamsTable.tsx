@@ -23,6 +23,9 @@ interface TeamsTableProps {
   onClearSelection?: () => void;
   onRequestDelete?: () => void;
 
+  onUnlockSelectedTeams?: (teamIds: string[]) => void | Promise<unknown>;
+  onLockSelectedTeams?: (teamIds: string[]) => void | Promise<unknown>;
+
   // Excel Export Props
   onExport?: () => void;
   isExporting?: boolean;
@@ -42,12 +45,18 @@ export function TeamsTable({
   onSelectAll,
   onClearSelection,
   onRequestDelete,
+  onUnlockSelectedTeams,
+  onLockSelectedTeams,
   onExport,
   isExporting = false,
 }: TeamsTableProps) {
   // Pagination states (default: 25 items per page)
   const [pageSize, setPageSize] = useState<number>(25);
   const [currentPage, setCurrentPage] = useState<number>(1);
+
+  // Track in-flight bulk lock / unlock operations
+  const [isUnlocking, setIsUnlocking] = useState<boolean>(false);
+  const [isLocking, setIsLocking] = useState<boolean>(false);
 
   const isAnyUpdating = false;
 
@@ -109,9 +118,14 @@ export function TeamsTable({
   }, [teams, selectedTeamIds]);
 
   const selectedCount = selectedTeamIds.length;
-  const lockedSelectedCount = selectedTeamsList.filter((t) => t.locked).length;
-  // Locked teams are Top 25 members: deletion is blocked for them (see RPC).
+  const lockedSelectedIds = selectedTeamsList.filter((t) => t.locked).map((t) => t.id);
+  const unlockedSelectedIds = selectedTeamsList.filter((t) => !t.locked).map((t) => t.id);
+  const lockedSelectedCount = lockedSelectedIds.length;
+  const unlockedSelectedCount = unlockedSelectedIds.length;
+  // Locked teams are protected from deletion until an admin unlocks them.
   const hasLockedSelected = lockedSelectedCount > 0;
+  const hasUnlockedSelected = unlockedSelectedCount > 0;
+  const isLockBusy = isLocking || isUnlocking;
 
   // Check if all paginated teams on current page are selected
   const paginatedIds = useMemo(() => paginatedTeams.map((t) => t.id), [paginatedTeams]);
@@ -275,20 +289,90 @@ export function TeamsTable({
               {selectedCount} {selectedCount === 1 ? 'team' : 'teams'} selected
             </span>
 
-            {/* Deletion eligibility pill (Top 25 semantics: locked ⇒ not deletable) */}
+            {/* Deletion eligibility pill (locked ⇒ not deletable) */}
             {hasLockedSelected ? (
               <span
                 className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-800"
-                title="Top 25 teams cannot be deleted."
+                title="Locked teams cannot be deleted."
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                {lockedSelectedCount} locked — Top 25 teams are not deletable
+                {lockedSelectedCount} locked — unlock to delete
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                 All {selectedCount} unlocked — Deletable
               </span>
+            )}
+
+            {/* Lock Selected Teams Button */}
+            {hasUnlockedSelected && (
+              <button
+                type="button"
+                disabled={isAnyUpdating || isLockBusy}
+                onClick={() => {
+                  setIsLocking(true);
+                  Promise.resolve(onLockSelectedTeams?.(unlockedSelectedIds)).finally(() =>
+                    setIsLocking(false)
+                  );
+                }}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors shadow-xs ${isLocking ? 'opacity-50 not-allowed' : 'bg-amber-600 text-white hover:bg-amber-700 cursor-pointer'}`}
+                title="Lock selected teams (protect them from deletion)"
+              >
+                {isLocking ? (
+                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <svg
+                    className="w-3.5 h-3.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                    />
+                  </svg>
+                )}
+                <span>Lock Selected Teams ({unlockedSelectedCount})</span>
+              </button>
+            )}
+
+            {/* Unlock Selected Teams Button */}
+            {hasLockedSelected && (
+              <button
+                type="button"
+                disabled={isAnyUpdating || isLockBusy}
+                onClick={() => {
+                  setIsUnlocking(true);
+                  Promise.resolve(onUnlockSelectedTeams?.(lockedSelectedIds)).finally(() =>
+                    setIsUnlocking(false)
+                  );
+                }}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors shadow-xs ${isUnlocking ? 'opacity-50 not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-700 cursor-pointer'}`}
+                title="Unlock selected teams (make them deletable)"
+              >
+                {isUnlocking ? (
+                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <svg
+                    className="w-3.5 h-3.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"
+                    />
+                  </svg>
+                )}
+                <span>Unlock Selected Teams ({lockedSelectedCount})</span>
+              </button>
             )}
 
             {onClearSelection && (
@@ -309,16 +393,16 @@ export function TeamsTable({
             {onRequestDelete && (
               <button
                 type="button"
-                disabled={hasLockedSelected || isAnyUpdating}
+                disabled={hasLockedSelected || isAnyUpdating || isLockBusy}
                 onClick={onRequestDelete}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-colors shadow-xs ${
-                  !hasLockedSelected && !isAnyUpdating
+                  !hasLockedSelected && !isAnyUpdating && !isLockBusy
                     ? 'bg-rose-600 text-white hover:bg-rose-700 cursor-pointer'
                     : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 cursor-not-allowed border border-zinc-300 dark:border-zinc-700'
                 }`}
                 title={
                   hasLockedSelected
-                    ? 'Deletion disabled: locked teams are Top 25 members and cannot be deleted.'
+                    ? 'Deletion disabled: locked teams cannot be deleted. Unlock them first.'
                     : `Permanently delete ${selectedCount} unlocked team(s)`
                 }
               >
@@ -435,7 +519,7 @@ export function TeamsTable({
                       {/* Member Count */}
                       <td className="px-4 py-3 text-center font-mono">
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-medium">
-                          {team.members.length}
+                          {team.members.length} / 3
                         </span>
                       </td>
 

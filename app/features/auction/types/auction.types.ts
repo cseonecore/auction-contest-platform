@@ -15,6 +15,8 @@ export type AuctionSessionStatus =
   | "finalizing"
   | "question_assigned"
   | "solving"
+  /** Transient status returned by advance_auction() while the 3s delay runs. */
+  | "advancing"
   | "completed"
   | "cancelled";
 
@@ -115,6 +117,27 @@ export interface AuctionSettings {
   bonus_points_rate: { points: number; per_unspent: number };
 }
 
+/**
+ * Backend-owned automatic slot progression snapshot.
+ *
+ * The backend schedules the next slot 5 seconds after a slot is
+ * finalized; this field only *reports* that schedule so the UI can
+ * render a countdown. No frontend timer is ever the source of truth.
+ */
+export interface AutoProgressionState {
+  /** True while the round's automatic sequence is running. */
+  active: boolean;
+  /** Round the sequence belongs to (1, 2 or 3). */
+  round: number | null;
+  /** True while a 5-second transition is scheduled but not yet executed. */
+  transition_pending: boolean;
+  /** Backend timestamp the next slot is opened at. */
+  scheduled_transition_at: string | null;
+  /** True once the round has no eligible slot left. */
+  round_complete: boolean;
+  message: string | null;
+}
+
 export interface LiveAuctionState {
   server_time: string | null;
   /** Total number of auction items in the contest (20). */
@@ -130,6 +153,8 @@ export interface LiveAuctionState {
   settings: AuctionSettings;
   events: AuctionEvent[];
   eliminations: AuctionElimination[];
+  /** Automatic slot progression (backend-scheduled, display-only here). */
+  auto_progression?: AutoProgressionState;
 }
 
 /** A participant's own auction state (balance, wins, bids). */

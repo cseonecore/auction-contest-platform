@@ -253,14 +253,17 @@ export async function GET(request: Request) {
       else if (usn.includes("EC")) branch = "ECE";
       else if (usn.includes("AI")) branch = "AIML";
 
+      const isCaptain = team.captain_id ? m.id === team.captain_id : index === 0;
+
       let semester = "5";
-      let phone = formatPhoneNumber(m.phone);
+      // Only the captain's phone number is collected and displayed.
+      let phone = isCaptain ? formatPhoneNumber(m.phone) : "";
 
       if (m.college) {
         const semMatch = m.college.match(/Sem\s*(\d+)/i);
         if (semMatch) semester = semMatch[1];
 
-        if (!phone) {
+        if (isCaptain && !phone) {
           const phoneMatch =
             m.college.match(/(?:Ph(?:one)?|Mob(?:ile)?|Contact):\s*([+0-9\s-]+)/i) ||
             m.college.match(/Ph:\s*([^\)]+)/i);
@@ -269,8 +272,6 @@ export async function GET(request: Request) {
           }
         }
       }
-
-      const isCaptain = team.captain_id ? m.id === team.captain_id : index === 0;
 
       return {
         id: m.id,

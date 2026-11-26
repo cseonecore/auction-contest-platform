@@ -502,14 +502,16 @@ export default function ProfilePage() {
                       <span className="text-slate-400">Semester: </span>
                       <span>{member.semester || "—"}</span>
                     </p>
-                    <p>
-                      <span className="text-slate-400">Phone: </span>
-                      <span className="font-mono">
-                        {member.phone && member.phone !== "+91 00000 00000" && member.phone !== "+91 12345 67890"
-                          ? member.phone
-                          : "—"}
-                      </span>
-                    </p>
+                    {member.isCaptain && (
+                      <p>
+                        <span className="text-slate-400">Phone: </span>
+                        <span className="font-mono">
+                          {member.phone && member.phone !== "+91 00000 00000" && member.phone !== "+91 12345 67890"
+                            ? member.phone
+                            : "—"}
+                        </span>
+                      </p>
+                    )}
                     <p className="truncate">
                       <span className="text-slate-400">Email: </span>
                       <span className="font-mono text-slate-300">{member.email}</span>

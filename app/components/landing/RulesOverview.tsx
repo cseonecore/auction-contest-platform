@@ -10,7 +10,7 @@ const ruleGroups = [
     ),
     rules: [
       "Currently enrolled college students",
-      "Teams must contain 2–4 members",
+      "Teams must contain 2–3 members",
       "No solo participation allowed",
       "One team per student",
       "Maximum of 20 teams overall",

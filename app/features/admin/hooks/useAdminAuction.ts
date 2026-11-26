@@ -394,10 +394,10 @@ export function useAdminAuction(
         if (isSold) {
           const winnerName = target.winner_team?.name ?? 'Unknown team';
           const msg = `Slot already sold - ${winnerName} won for ${res.data?.winning_bid ?? 0} pts.`;
-          setActionFeedback({ type: 'info', message: msg });
+          setActionFeedback({ type: 'success', message: msg });
         } else if (isSkipped) {
           const msg = `Slot already skipped - no team was awarded.`;
-          setActionFeedback({ type: 'info', message: msg });
+          setActionFeedback({ type: 'success', message: msg });
         } else {
           // Slot was open and is now finalized
           const isSold = res.data?.status === 'sold';
@@ -484,7 +484,8 @@ export function useAdminAuction(
 
   /**
    * Performs an atomic full reset of the auction.
-   * Resets all slots to pending, deletes all bids, and restores team wallets.
+   * Resets all slots to pending, deletes all bids and submissions (with
+   * their evaluations and bonus time), and restores team wallets.
    * Concurrency-guarded: rejects if another action is in progress.
    */
   const handleResetAuction = useCallback(async (): Promise<boolean> => {
@@ -513,10 +514,15 @@ export function useAdminAuction(
       const info = res.data;
       const count = info?.slots_reset ?? slots.length;
       const balance = info?.starting_balance ?? 100;
+      const submissions = info?.submissions_deleted;
+      const submissionsNote =
+        typeof submissions === 'number'
+          ? `, ${submissions} submission${submissions === 1 ? '' : 's'} erased`
+          : '';
 
       setActionFeedback({
         type: 'success',
-        message: `Auction reset successfully! ${count} slots restored to Pending, bids deleted, and wallets restored to ${balance} pts.`,
+        message: `Auction reset successfully! ${count} slots restored to Pending, bids and allocations cleared, and wallets restored to ${balance} pts${submissionsNote}.`,
       });
 
       setRefreshTrigger((prev) => prev + 1);
