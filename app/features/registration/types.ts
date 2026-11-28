@@ -1,4 +1,4 @@
-export type TeamSize = 2 | 3;
+export type TeamSize = 3 | 4;
 
 export interface TeamLeader {
   name: string;
@@ -8,7 +8,7 @@ export interface TeamLeader {
 }
 
 export interface Teammate {
-  id: number; // 2 or 3
+  id: number; // 2, 3, or 4
   name: string;
   usn: string;
 }

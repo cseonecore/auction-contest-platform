@@ -43,6 +43,8 @@ interface AssignedProblem {
     submitted_at: string;
     approved_at: string | null;
     judge_notes?: string | null;
+    // Which problem statement this submission is for (for single-submission tracking)
+    problemStatementId: string;
   } | null;
 }
 
@@ -56,6 +58,10 @@ interface TeamData {
   dev_deadline?: string | null;
   submission_opens_at?: string | null;
   dq_at?: string | null;
+  // Single final submission tracking: which problem the team has submitted for final evaluation
+  finalSubmissionProblemId?: string;
+  // Whether the team has a locked (approved/evaluated) submission
+  hasFinalSubmission: boolean;
 }
 
 /**
@@ -137,14 +143,27 @@ export default function SubmitPage() {
       setManualEnabled(Boolean(flow?.submissions_manually_enabled));
 
       const problems: AssignedProblem[] = data.team.assignedProblems ?? [];
-      const firstWithSubmission = problems.find((p) => p.submission);
-      const selected = firstWithSubmission ?? problems[0];
-      if (selected) {
-        setActiveProblemId((prev) => prev || selected.id);
-        const currentSelected = problems.find((p) => p.id === (activeProblemId || selected.id)) || selected;
-        setRepoUrl(currentSelected.submission?.repository_url ?? "");
-        setLiveUrl(currentSelected.submission?.live_url ?? "");
+      // Determine which problem the team has submitted for final evaluation
+      let finalSubmissionProblemId: string | undefined;
+      let hasFinalSubmission = false;
+
+      if (data.team.assignedProblems?.length > 0) {
+        const finalSubmittedSlotId = data.team.assignedProblems.find(
+          (problem: AssignedProblem) => problem.submission && problem.submission.status !== "rejected"
+        )?.id;
+
+        if (finalSubmittedSlotId) {
+          hasFinalSubmission = true;
+          finalSubmissionProblemId = finalSubmittedSlotId;
+        }
       }
+
+      // Set the active problem ID: prefer the final submission problem, fall back to first problem
+      const effectiveActiveProblemId = finalSubmissionProblemId || problems[0]?.id;
+      setActiveProblemId((prev) => prev || effectiveActiveProblemId);
+      const currentSelected = problems.find((p) => p.id === (activeProblemId || effectiveActiveProblemId)) || problems[0]!;
+      setRepoUrl(currentSelected.submission?.repository_url ?? "");
+      setLiveUrl(currentSelected.submission?.live_url ?? "");
     } catch {
       setErrorMsg("Failed to load team data. Please refresh.");
     } finally {
@@ -161,6 +180,20 @@ export default function SubmitPage() {
   const isApproved = existingSubmission?.status === "approved";
   const isRejected = existingSubmission?.status === "rejected";
   const isLocked = isApproved || isRejected;
+
+  // Single final submission per team tracking:
+  // Derived from the team's assigned problems and their submission status.
+  // A team has a final submission if any of its assigned problems has a non-rejected submission.
+  const hasFinalSubmission = team?.assignedProblems?.some(
+    (problem: AssignedProblem) => problem.submission && problem.submission.status !== "rejected"
+  ) ?? false;
+  const finalSubmissionProblemId = team?.assignedProblems.find(
+    (problem: AssignedProblem) => problem.submission && problem.submission.status !== "rejected"
+  )?.id;
+  // Whether the active problem is different from the final submission problem
+  const isOtherProblemFinalSubmission = hasFinalSubmission &&
+    finalSubmissionProblemId?.toString() !== activeProblemId?.toString() &&
+    activeProblemId !== finalSubmissionProblemId;
 
   // Team dev-timer gate (migration 028, from /api/team/profile):
   //  - DQ'd teams are locked out;
@@ -466,14 +499,48 @@ export default function SubmitPage() {
               {team.assignedProblems.map((problem) => {
                 const isActive = problem.id === activeProblemId;
                 const subStatus = problem.submission?.status;
+
+                // Determine if this problem is the one already selected for final submission
+                const isFinalSubmissionProblem = finalSubmissionProblemId?.toString() === problem.id.toString();
+                const isThisLocked = isFinalSubmissionProblem && activeProblemId !== problem.id;
+
+                // Disable/disable styling: if team has a final submission for a DIFFERENT problem,
+                // other problems become non-selectable (read-only view)
+                const isOtherProblemFinalSubmission = hasFinalSubmission && 
+                    finalSubmissionProblemId?.toString() !== problem.id.toString() && 
+                    problem.submission?.status !== "rejected";
+
                 return (
                   <button
                     key={problem.id}
                     type="button"
-                    onClick={() => handleSelectProblem(problem)}
+                    onClick={() => {
+                      // Allow switching active problem only if no final submission exists
+                      // or if switching to the already-submitted problem
+                      if (isOtherProblemFinalSubmission) {
+                        setErrorMsg("Your team has already submitted a final solution for a different problem statement. Only one final submission is allowed per team.");
+                        return;
+                      }
+                      setActiveProblemId(problem.id);
+                      setRepoUrl(problem.submission?.repository_url ?? "");
+                      setLiveUrl(problem.submission?.live_url ?? "");
+                      setErrorMsg(null);
+                      setSuccessMsg(null);
+                    }}
+                    title={
+                      isOtherProblemFinalSubmission
+                        ? "Your team has already submitted a final solution for a different problem statement. Only one final submission is allowed per team."
+                        : isThisLocked
+                        ? "Cannot switch - this problem has a final submission locked."
+                        : undefined
+                    }
                     className={`w-full text-left rounded-xl p-4 border transition-all ${
                       isActive
                         ? "border-[#fe5102] bg-[#fe5102]/10 shadow-md ring-1 ring-[#fe5102]/30"
+                        : isOtherProblemFinalSubmission
+                        ? "border-white/5 bg-[#18191c] opacity-50 cursor-not-allowed"
+                        : isThisLocked
+                        ? "border-white/5 bg-[#18191c] opacity-50 cursor-not-allowed"
                         : "border-white/5 bg-[#18191c] hover:border-white/20"
                     }`}
                   >
@@ -577,6 +644,22 @@ export default function SubmitPage() {
               </div>
             )}
 
+            {/* One-submission-per-team lock notice */}
+            {hasFinalSubmission && finalSubmissionProblemId && activeProblemId !== finalSubmissionProblemId && (
+              <div className="p-4 rounded-xl bg-amber-950/60 border border-amber-500/40 text-amber-200 text-xs flex items-start gap-3">
+                <Lock className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-bold">Final Submission Already Selected</p>
+                  <p className="text-amber-300/90 leading-relaxed">
+                    Your team has already submitted a final solution for problem statement <strong>
+                      #{team.assignedProblems.find((p) => p.id === finalSubmissionProblemId)?.number || ''}
+                    </strong>. Only <strong>one final submission</strong> is allowed per team. 
+                    Switch to your submitted problem to view or update it.
+                  </p>
+                </div>
+              </div>
+            )}
+
             <form onSubmit={handleSubmit} className="space-y-5">
               <div>
                 <label
@@ -591,7 +674,7 @@ export default function SubmitPage() {
                   id={repoInputId}
                   type="url"
                   required
-                  disabled={isLocked || submitting || !submissionsEnabled}
+                  disabled={isLocked || isOtherProblemFinalSubmission || submitting || !submissionsEnabled}
                   placeholder="https://github.com/username/project"
                   value={repoUrl}
                   onChange={(e) => setRepoUrl(e.target.value)}
@@ -614,7 +697,7 @@ export default function SubmitPage() {
                 <input
                   id={liveInputId}
                   type="url"
-                  disabled={isLocked || submitting || !submissionsEnabled}
+                  disabled={isLocked || isOtherProblemFinalSubmission || submitting || !submissionsEnabled}
                   placeholder="https://your-project.vercel.app"
                   value={liveUrl}
                   onChange={(e) => setLiveUrl(e.target.value)}
@@ -649,7 +732,7 @@ export default function SubmitPage() {
 
                 <button
                   type="submit"
-                  disabled={isLocked || submitting || !submissionsEnabled || !!team?.dq_at || windowClosedEarly || lateBlocked}
+                  disabled={isLocked || isOtherProblemFinalSubmission || submitting || !submissionsEnabled || !!team?.dq_at || windowClosedEarly || lateBlocked}
                   className="bg-[#fe5102] hover:bg-[#d94502] text-white font-bold text-sm px-8 py-3 rounded-full transition-all cursor-pointer shadow-lg shadow-orange-500/25 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {submitting ? (
@@ -666,6 +749,11 @@ export default function SubmitPage() {
                     <>
                       <Lock className="w-4 h-4" />
                       <span>Rejected (Locked)</span>
+                    </>
+                  ) : isOtherProblemFinalSubmission ? (
+                    <>
+                      <Lock className="w-4 h-4" />
+                      <span>Other Problem Selected</span>
                     </>
                   ) : existingSubmission ? (
                     <>

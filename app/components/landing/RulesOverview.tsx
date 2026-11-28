@@ -10,8 +10,8 @@ const ruleGroups = [
     ),
     rules: [
       "Currently enrolled college students",
-      "Teams must contain 2–3 members",
-      "No solo participation allowed",
+      "Teams must contain 3–4 members",
+      "Teams of 1 or 2 members are not allowed",
       "One team per student",
       "Maximum of 20 teams overall",
       "One designated captain per team",
@@ -41,7 +41,8 @@ const ruleGroups = [
       </svg>
     ),
     rules: [
-      "Build a browser-based web application",
+      "Build browser-based web applications for both problem statements",
+      "Both problem statements are compulsory to develop",
       "Any suitable web development framework or language is allowed",
       "AI coding tools are permitted",
       "Participants must understand and explain their code",
@@ -55,6 +56,7 @@ const ruleGroups = [
       </svg>
     ),
     rules: [
+      "Select ONE of your two developed solutions for final submission",
       "GitHub repository link with source code",
       "README with project details, instructions, and screenshots",
       "Deployed Vercel application link (mandatory)",

@@ -95,7 +95,7 @@ export function TeamDetailsModal({
                 Team Size
               </span>
               <span className="text-lg font-bold font-mono text-zinc-900 dark:text-zinc-50">
-                {team.members.length} / 3 Members
+                {team.members.length} / 4 Members
               </span>
             </div>
           </div>

@@ -9,7 +9,7 @@ import { isValidUsn, normalizeUsn, USN_FORMAT_HINT } from "@/lib/usn";
 
 export const FigmaRegistrationForm: React.FC = () => {
   const [teamName, setTeamName] = useState("");
-  const [teamSize, setTeamSize] = useState<2 | 3>(3);
+  const [teamSize, setTeamSize] = useState<3 | 4>(3);
 
   // Captain details (with Semester & Phone confirmation)
   const [captainName, setCaptainName] = useState("");
@@ -24,6 +24,10 @@ export const FigmaRegistrationForm: React.FC = () => {
   // Member 3
   const [m3Name, setM3Name] = useState("");
   const [m3Usn, setM3Usn] = useState("");
+
+  // Member 4 (for 4-member teams)
+  const [m4Name, setM4Name] = useState("");
+  const [m4Usn, setM4Usn] = useState("");
 
   // Form State
   const [loading, setLoading] = useState(false);
@@ -119,21 +123,31 @@ export const FigmaRegistrationForm: React.FC = () => {
       return;
     }
 
-    // 4. Member 3 validation (only for 3-member teams)
-    if (teamSize === 3) {
-      if (!m3Name.trim() || !m3Usn.trim()) {
-        setError("Please fill in Member 3 Name and USN.");
+    // 4. Member 3 validation (required for all teams: min 3 members)
+    if (!m3Name.trim() || !m3Usn.trim()) {
+      setError("Please fill in Member 3 Name and USN.");
+      return;
+    }
+    if (!isValidUsn(m3Usn)) {
+      setError(`Invalid Member 3 USN! Must follow pattern ${USN_FORMAT_HINT}.`);
+      return;
+    }
+
+    // 5. Member 4 validation (only for 4-member teams)
+    if (teamSize === 4) {
+      if (!m4Name.trim() || !m4Usn.trim()) {
+        setError("Please fill in Member 4 Name and USN.");
         return;
       }
-      if (!isValidUsn(m3Usn)) {
-        setError(`Invalid Member 3 USN! Must follow pattern ${USN_FORMAT_HINT}.`);
+      if (!isValidUsn(m4Usn)) {
+        setError(`Invalid Member 4 USN! Must follow pattern ${USN_FORMAT_HINT}.`);
         return;
       }
     }
 
-    // 5. Check for duplicate USNs
-    const usnList = [normalizeUsn(captainUsn), normalizeUsn(m2Usn)];
-    if (teamSize === 3) usnList.push(normalizeUsn(m3Usn));
+    // 6. Check for duplicate USNs
+    const usnList = [normalizeUsn(captainUsn), normalizeUsn(m2Usn), normalizeUsn(m3Usn)];
+    if (teamSize === 4) usnList.push(normalizeUsn(m4Usn));
 
     const uniqueUsns = new Set(usnList);
     if (uniqueUsns.size !== usnList.length) {
@@ -148,9 +162,10 @@ export const FigmaRegistrationForm: React.FC = () => {
       // are intentionally omitted from the payload.
       const members: Array<{ name: string; usn: string }> = [
         { name: m2Name.trim(), usn: normalizeUsn(m2Usn) },
+        { name: m3Name.trim(), usn: normalizeUsn(m3Usn) },
       ];
-      if (teamSize === 3) {
-        members.push({ name: m3Name.trim(), usn: normalizeUsn(m3Usn) });
+      if (teamSize === 4) {
+        members.push({ name: m4Name.trim(), usn: normalizeUsn(m4Usn) });
       }
 
       const res = await fetch("/api/register", {
@@ -337,13 +352,13 @@ export const FigmaRegistrationForm: React.FC = () => {
               />
             </div>
 
-            {/* Team Size (2 or 3 members) */}
+            {/* Team Size (3 or 4 members) */}
             <div className="flex items-center gap-2">
               <label className="text-xs font-semibold w-20 shrink-0">
                 Team Size
               </label>
               <div className="flex items-center gap-2">
-                {([2, 3] as const).map((sz) => (
+                {([3, 4] as const).map((sz) => (
                   <button
                     key={sz}
                     type="button"
@@ -358,7 +373,7 @@ export const FigmaRegistrationForm: React.FC = () => {
                   </button>
                 ))}
                 <span className="text-[10px] font-medium text-white/80">
-                  (2–3 members)
+                  (3–4 members)
                 </span>
               </div>
             </div>
@@ -446,28 +461,54 @@ export const FigmaRegistrationForm: React.FC = () => {
               </div>
             </div>
 
-            {/* Member 3 (visible when teamSize is 3) */}
-            {teamSize === 3 && (
+            {/* Member 3 (required for all teams) */}
+            <div className="flex items-start gap-2">
+              <label className="text-xs font-semibold w-20 shrink-0 pt-1.5">
+                Member 3
+              </label>
+              <div className="w-full space-y-1.5">
+                <input
+                  type="text"
+                  required
+                  placeholder="Name"
+                  value={m3Name}
+                  onChange={(e) => setM3Name(e.target.value)}
+                  className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400"
+                />
+                <input
+                  type="text"
+                  required
+                  placeholder="USN [ 4MT2XBBMMM / MT2XBBMMM ]"
+                  value={m3Usn}
+                  maxLength={10}
+                  onChange={(e) => setM3Usn(e.target.value.toUpperCase())}
+                  className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
+                />
+              </div>
+            </div>
+
+            {/* Member 4 (visible when teamSize is 4) */}
+            {teamSize === 4 && (
               <div className="flex items-start gap-2 animate-in fade-in duration-150">
                 <label className="text-xs font-semibold w-20 shrink-0 pt-1.5">
-                  Member 3
+                  Member 4
                 </label>
                 <div className="w-full space-y-1.5">
                   <input
                     type="text"
                     required
                     placeholder="Name"
-                    value={m3Name}
-                    onChange={(e) => setM3Name(e.target.value)}
+                    value={m4Name}
+                    onChange={(e) => setM4Name(e.target.value)}
                     className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400"
                   />
                   <input
                     type="text"
                     required
                     placeholder="USN [ 4MT2XBBMMM / MT2XBBMMM ]"
-                    value={m3Usn}
+                    value={m4Usn}
                     maxLength={10}
-                    onChange={(e) => setM3Usn(e.target.value.toUpperCase())}
+                    onChange={(e) => setM4Usn(e.target.value.toUpperCase())}
                     className="w-full bg-white text-slate-900 text-xs px-3 py-1.5 rounded-lg outline-none placeholder:text-slate-400 font-mono"
                   />
                 </div>
@@ -516,9 +557,12 @@ export const FigmaRegistrationForm: React.FC = () => {
               <span className="bg-[#fecaca] text-[#991b1b] font-semibold text-[11px] px-3 py-1 rounded-full shadow-2xs">
                 {m2Name.trim() || "Member 2 Name"}
               </span>
-              {teamSize === 3 && (
-                <span className="bg-[#fbcfe8] text-[#9d174d] font-semibold text-[11px] px-3 py-1 rounded-full shadow-2xs">
-                  {m3Name.trim() || "Member 3 Name"}
+              <span className="bg-[#fbcfe8] text-[#9d174d] font-semibold text-[11px] px-3 py-1 rounded-full shadow-2xs">
+                {m3Name.trim() || "Member 3 Name"}
+              </span>
+              {teamSize === 4 && (
+                <span className="bg-[#ddd6fe] text-[#5b21b6] font-semibold text-[11px] px-3 py-1 rounded-full shadow-2xs">
+                  {m4Name.trim() || "Member 4 Name"}
                 </span>
               )}
             </div>

@@ -22,10 +22,11 @@ const INITIAL_FORM_STATE: RegistrationFormData = {
     email: "",
     phone: "",
   },
-  teamSize: 2,
+  teamSize: 3,
   teammates: [
     { id: 2, name: "", usn: "" },
     { id: 3, name: "", usn: "" },
+    { id: 4, name: "", usn: "" },
   ],
 };
 
@@ -37,10 +38,10 @@ export const RegistrationForm: React.FC = () => {
   const [successData, setSuccessData] =
     useState<RegistrationSuccessData | null>(null);
 
-  // Active teammates based on selected team size (2 or 3)
+  // Active teammates based on selected team size (3 or 4)
   const activeTeammates: Teammate[] =
-    formData.teamSize === 2
-      ? formData.teammates.filter((t) => t.id === 2)
+    formData.teamSize === 3
+      ? formData.teammates.filter((t) => t.id === 2 || t.id === 3)
       : formData.teammates;
 
   // Handle Team Name Change

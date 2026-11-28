@@ -11,12 +11,12 @@ const faqItems: FaqItem[] = [
   {
     question: "Who can participate?",
     answer:
-      "Currently enrolled college students. Teams must contain 2–3 members. No solo participation is allowed.",
+      "Currently enrolled college students. Teams must contain 3–4 members. Teams of 1 or 2 members are not allowed.",
   },
   {
     question: "How many members can a team have?",
     answer:
-      "Teams must contain 2–3 members. A minimum of 2 members is required; a team of 1 is not permitted.",
+      "Teams must contain 3–4 members. A minimum of 3 members is required; teams of 1 or 2 members are not permitted.",
   },
   {
     question: "Can we use AI tools?",
@@ -31,7 +31,7 @@ const faqItems: FaqItem[] = [
   {
     question: "What do we need to submit?",
     answer:
-      "A GitHub repository link containing the project source code and a README with project details, instructions, and screenshots. A deployed Vercel application link is also required.",
+      "Every team must develop solutions for both problem statements, then select ONE final solution to submit for evaluation. Include a GitHub repository link containing the project source code, a README with project details, instructions, and screenshots, and a deployed Vercel application link.",
   },
   {
     question: "Is a Vercel deployment mandatory?",

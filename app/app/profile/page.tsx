@@ -814,6 +814,8 @@ export default function ProfilePage() {
                 <p>
                   • Winning a slot awards your team that problem statement for development.
                   <br />
+                  • Teams must develop solutions for <strong>both</strong> problem statements won in the auction.
+                  <br />
                   • You must build a functional prototype within the designated contest time limit.
                 </p>
               </div>
@@ -833,6 +835,8 @@ export default function ProfilePage() {
                 <h4 className="font-bold text-white text-sm mb-1">4. Submission Criteria</h4>
                 <p>
                   • Submit your public GitHub repository and optional live demo URL before the countdown reaches zero.
+                  <br />
+                  • Your team must select <strong>ONE</strong> of the two developed solutions as your final submission.
                   <br />
                   • Submissions are evaluated on implementation depth, UI fidelity, and code quality.
                   <br />

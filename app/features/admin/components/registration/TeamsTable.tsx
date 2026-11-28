@@ -519,7 +519,7 @@ export function TeamsTable({
                       {/* Member Count */}
                       <td className="px-4 py-3 text-center font-mono">
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-medium">
-                          {team.members.length} / 3
+                          {team.members.length} / 4
                         </span>
                       </td>
 

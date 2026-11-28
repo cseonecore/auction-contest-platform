@@ -6,8 +6,8 @@ import { isValidUsn, normalizeUsn, USN_FORMAT_HINT } from "@/lib/usn";
 
 const DEFAULT_MAX_TEAMS = 60;
 const DEFAULT_REGISTRATION_OPEN = true;
-const MIN_TEAM_MEMBERS = 2;
-const MAX_TEAM_MEMBERS = 3;
+const MIN_TEAM_MEMBERS = 3;
+const MAX_TEAM_MEMBERS = 4;
 
 interface RegisterRequestBody {
   teamName: string;
@@ -513,7 +513,7 @@ export async function POST(request: Request) {
     if (totalMembers < MIN_TEAM_MEMBERS) {
       return NextResponse.json(
         {
-          error: `A team must have at least ${MIN_TEAM_MEMBERS} members (the Captain plus at least one teammate).`,
+          error: `A team must have at least ${MIN_TEAM_MEMBERS} members (the Captain plus at least two teammates).`,
         },
         { status: 400 }
       );
@@ -522,7 +522,7 @@ export async function POST(request: Request) {
     if (totalMembers > MAX_TEAM_MEMBERS) {
       return NextResponse.json(
         {
-          error: `A team can have at most ${MAX_TEAM_MEMBERS} members (the Captain plus up to two teammates).`,
+          error: `A team can have at most ${MAX_TEAM_MEMBERS} members (the Captain plus up to three teammates).`,
         },
         { status: 400 }
       );

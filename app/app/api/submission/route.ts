@@ -248,6 +248,98 @@ export async function POST(request: Request) {
       );
     }
 
+    // ── RULE: Only ONE final submission per team across all slots ──
+    // If the team already has an approved or evaluated submission for a *different* slot,
+    // block this request. Resubmitting for the same slot is still allowed (updates are
+    // permitted if the previous submission is still in 'submitted' or 'evaluating' state).
+    // Rejected submissions can be reopened and resubmitted.
+    const { data: existingFinalSubs, error: existingFinalSubsErr } = await service
+      .from("submissions")
+      .select("id, slot_id, status")
+      .eq("team_id", teamId)
+      .in("status", ["approved", "evaluated"]);
+
+    if (existingFinalSubsErr) {
+      return NextResponse.json(
+        { error: "Failed to verify final submission count." },
+        { status: 500 }
+      );
+    }
+
+    // If team already has a final (approved/evaluated) submission for a DIFFERENT slot,
+    // block this new submission attempt.
+    if (existingFinalSubs && existingFinalSubs.length > 0) {
+      const alreadySelectedSlotId = existingFinalSubs[0].slot_id as string;
+      if (alreadySelectedSlotId !== body.slotId) {
+        return NextResponse.json(
+          {
+            error:
+              "Your team has already submitted a final solution for a different problem statement. Only one final submission is allowed per team. " +
+              "Select your stronger solution for final evaluation.",
+          },
+          { status: 403 }
+        );
+      }
+      // If same slot, allow the update (below) — the existing submission
+      // will be updated rather than creating a duplicate.
+    }
+
+    // ── RULE: Both problem statements must be developed before final submission ──
+    // Fetch the team's assigned problems (won slots) and check if they have
+    // any recorded submission (even non-approved) for BOTH problem statements.
+    // This ensures the team has developed solutions for both before submitting.
+    const { data: teamWonSlots, error: wonSlotsErr } = await service
+      .from("slots")
+      .select("id, topic_id, round, status")
+      .eq("winner_team_id", teamId)
+      .eq("status", "sold");
+
+    if (wonSlotsErr) {
+      return NextResponse.json(
+        { error: "Failed to load assigned questions." },
+        { status: 500 }
+      );
+    }
+
+    // Build a set of which slots the team has any non-rejected submission for
+    const { data: allTeamSubmissions, error: allSubsErr } = await service
+      .from("submissions")
+      .select("slot_id")
+      .eq("team_id", teamId)
+      .neq("status", "rejected");
+
+    if (allSubsErr) {
+      return NextResponse.json(
+        { error: "Failed to verify problem development status." },
+        { status: 500 }
+      );
+    }
+
+    const teamProblemSlots = new Set(
+      (allTeamSubmissions || []).map((s: { slot_id: string }) => s.slot_id)
+    );
+
+    // A team has "developed" a problem statement if they have any non-rejected
+    // submission for either of their won slots. Check both slots.
+    const problem1Slot = teamWonSlots?.[0]?.id;
+    const problem2Slot = teamWonSlots?.[1]?.id;
+
+    if (problem1Slot && problem2Slot) {
+      const developed1 = teamProblemSlots.has(problem1Slot);
+      const developed2 = teamProblemSlots.has(problem2Slot);
+
+      if (!developed1 || !developed2) {
+        return NextResponse.json(
+          {
+            error:
+              "Both problem statements must be developed before submitting a final solution. " +
+              "Your team must develop solutions for both problem statements, then select one for final evaluation.",
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     // Verify auction slots won by this team
     const { data: wonSlots, error: slotsErr } = await service
       .from("slots")
